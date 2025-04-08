@@ -31,3 +31,5 @@ cd pointnet2_ops_lib
 pip install -e . <---- Done until this part
 cd ..
 pip install -e .
+
+https://github.com/SLIDE-3D/SLIDE
