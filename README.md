@@ -25,3 +25,9 @@ Not working.
 
 ## SLIDE:
 -Requirements done
+conda env create -f environment.yml
+conda activate slide
+cd pointnet2_ops_lib
+pip install -e . <---- Done until this part
+cd ..
+pip install -e .
