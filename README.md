@@ -20,7 +20,8 @@ Its running on linux.
 
 ## Shape As Points:
 https://github.com/autonomousvision/shape_as_points
+Not known the working requirements.
 Not working.
 
 ## SLIDE:
-
+-Requirements done
