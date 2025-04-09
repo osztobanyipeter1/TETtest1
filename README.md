@@ -14,7 +14,7 @@ Centered.ply with FPSample algorithm.
 
 ## Already tried algorithms:
 ### Point2mesh
-Too slow. Its not working for real time visualization. Too much iteration needed to make good visualization.
+Too slow on my machine... But its not working for real time visualization. Too much iteration needed to make good visualization.
 https://github.com/ranahanocka/Point2Mesh/
 Its running on linux.
 
@@ -33,3 +33,9 @@ cd ..
 pip install -e .
 
 https://github.com/SLIDE-3D/SLIDE
+Dont have enough space to test it.
+
+## GeoUDF:
+https://github.com/rsy6318/GeoUDF
+Builded, but not running yet
+https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md to help me with pytorch
