@@ -14,9 +14,9 @@ Centered.ply with FPSample algorithm.
 
 ## Already tried algorithms:
 ### Point2mesh
-Too slow on my machine... But its not working for real time visualization. Too much iteration needed to make good visualization.
 https://github.com/ranahanocka/Point2Mesh/
 Its running on linux.
+Mine: https://github.com/osztobanyipeter1/TETpoint2mesh
 
 ## Shape As Points:
 https://github.com/autonomousvision/shape_as_points
@@ -39,3 +39,4 @@ Dont have enough space to test it.
 https://github.com/rsy6318/GeoUDF
 Builded, but not running yet
 https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md to help me with pytorch
+
