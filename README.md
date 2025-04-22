@@ -16,7 +16,7 @@ Centered.ply with FPSample algorithm.
 ### Point2mesh
 https://github.com/ranahanocka/Point2Mesh/
 Its running on linux.
-Mine: https://github.com/osztobanyipeter1/TETpoint2mesh
+Mine: https://github.com/osztobanyipeter1/point2mesh
 
 ## Shape As Points:
 https://github.com/autonomousvision/shape_as_points
