@@ -1,5 +1,8 @@
 # TET Repo1
 
+#To use the ROKID AIR Pro
+https://github.com/osztobanyipeter1/AR-Driver
+
 ## Test1.ipynb:
 First tests of the boat_reconst_simple.obj
 
