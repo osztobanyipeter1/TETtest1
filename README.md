@@ -1,6 +1,6 @@
 # TET Repo1
 
-#To use the ROKID AIR Pro
+# To use the ROKID AIR Pro
 https://github.com/osztobanyipeter1/AR-Driver
 
 ## Test1.ipynb:
