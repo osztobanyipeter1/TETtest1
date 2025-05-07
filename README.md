@@ -13,6 +13,8 @@ The FPSample can help to reduce the size of the point cloud and make it even mor
 
 ## 1.ipynb: This is the file i will update with the best solution
 
+# Next GREEDY PROJECT
+
 ## Other ipynb and py files are just for testing.
 
 # To use the ROKID AIR Pro
