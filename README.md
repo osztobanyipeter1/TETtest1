@@ -15,6 +15,8 @@ The FPSample can help to reduce the size of the point cloud and make it even mor
 
 ## Other ipynb and py files are just for testing.
 
+# To use the ROKID AIR Pro
+https://github.com/osztobanyipeter1/AR-Driver
 
 ## Already tried algorithms:
 ### Point2mesh
