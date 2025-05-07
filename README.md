@@ -1,5 +1,8 @@
 # TET Repo1
 
+# To use the ROKID AIR Pro
+https://github.com/osztobanyipeter1/AR-Driver
+
 ## Description
 To get the best surface real-time or near real-time, we can use some basic algorith to do that.
 ### Alpha shape
@@ -15,9 +18,9 @@ The FPSample can help to reduce the size of the point cloud and make it even mor
 
 ## Already tried algorithms:
 ### Point2mesh
-Too slow on my machine... But its not working for real time visualization. Too much iteration needed to make good visualization.
 https://github.com/ranahanocka/Point2Mesh/
 Its running on linux.
+Mine: https://github.com/osztobanyipeter1/point2mesh
 
 ## Shape As Points:
 https://github.com/autonomousvision/shape_as_points
@@ -40,4 +43,3 @@ Dont have enough space to test it.
 https://github.com/rsy6318/GeoUDF
 Builded, but not running yet
 https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md to help me with pytorch
-Need Linux for this also...
