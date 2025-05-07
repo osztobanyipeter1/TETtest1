@@ -1,16 +1,17 @@
 # TET Repo1
 
-## Test1.ipynb:
-First tests of the boat_reconst_simple.obj
+## Description
+To get the best surface real-time or near real-time, we can use some basic algorith to do that.
+### Alpha shape
+### Ball pivoting
+### Poisson
+For the ball pivoting and poisson method have the need to calculate the normal vectors, what takes lots of time. So I think we can skip this part and we can also skip ball pivoting and poission. The alpha shape gives back quite good surfaces real time.
+The FPSample can help to reduce the size of the point cloud and make it even more faster.
 
-## Test2.ipynb:
-First test of the centered.ply
+## 1.ipynb: This is the file i will update with the best solution
 
-## ParalelisationTry.ipynb:
-Try to make it paralel.
+## Other ipynb and py files are just for testing.
 
-## FPSample.ipynb:
-Centered.ply with FPSample algorithm. 
 
 ## Already tried algorithms:
 ### Point2mesh
@@ -39,3 +40,4 @@ Dont have enough space to test it.
 https://github.com/rsy6318/GeoUDF
 Builded, but not running yet
 https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md to help me with pytorch
+Need Linux for this also...
