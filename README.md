@@ -16,7 +16,7 @@ NEW IDEA: VoxelHashing, ICP (Iterative Closest Point)
 #### Make a simulation
 Simulation about a real time point cloud registration.
 
-# GREEDY PROJECT
+## GREEDY PROJECT
 pcl_surface_recosntruction: Greedy algorithm. Too slow. (Linux)
 
 ## Other ipynb and py files are just for testing.
