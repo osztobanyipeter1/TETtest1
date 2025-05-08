@@ -12,9 +12,12 @@ For the ball pivoting and poisson method have the need to calculate the normal v
 The FPSample can help to reduce the size of the point cloud and make it even more faster.
 
 ## 1.ipynb: This is the file i will update with the best solution
+NEW IDEA: VoxelHashing, ICP (Iterative Closest Point)
+#### Make a simulation
+Simulation about a real time point cloud registration.
 
 # GREEDY PROJECT
-pcl_surface_recosntruction: Greedy algorithm. Too slow.
+pcl_surface_recosntruction: Greedy algorithm. Too slow. (Linux)
 
 ## Other ipynb and py files are just for testing.
 
