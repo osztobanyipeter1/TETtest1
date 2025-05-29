@@ -245,5 +245,5 @@ if __name__ == "__main__":
     - NYILAK FEL/LE: max_distance növelése/csökkentése
     - ESC: Kilépés
     """)
-    viewer = PointCloudViewer("centered_sampled3.ply")
+    viewer = PointCloudViewer("cave_sampled3.ply")
     viewer.run()

@@ -18,6 +18,9 @@ class PointCloudViewer:
         self.roll = 0.0
         self.pitch = 0.0
         self.yaw = 0.0
+        self.filtered_roll = 0.0
+        self.filtered_pitch = 0.0
+        self.filtered_yaw = 0.0
         self.lock = threading.Lock()
         
         self.running = True
@@ -46,7 +49,7 @@ class PointCloudViewer:
         self.movement_speed = 1.0
 
         pygame.init()
-        self.display = (1280, 500)
+        self.display = (2500, 1500)
         pygame.display.set_mode(self.display, DOUBLEBUF | OPENGL)
         pygame.mouse.set_visible(True)
 
@@ -82,20 +85,44 @@ class PointCloudViewer:
 
     def update_camera_orientation(self):
         with self.lock:
-            roll, pitch, yaw = self.roll, self.pitch, self.yaw
-        
-        front = np.array([
-            np.cos(yaw) * np.cos(pitch),
-            np.sin(pitch),
-            np.sin(yaw) * np.cos(pitch)
-        ], dtype=np.float32)
-        self.camera_front = front / np.linalg.norm(front)
-
-        world_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-        right = np.cross(self.camera_front, world_up)
-        right /= np.linalg.norm(right)
-        self.camera_up = np.cross(right, self.camera_front)
-        self.camera_up /= np.linalg.norm(self.camera_up)
+            # Szűrés alkalmazása
+            self.filtered_roll = 0.2 * self.roll + 0.8 * self.filtered_roll
+            self.filtered_pitch = 0.2 * self.pitch + 0.8 * self.filtered_pitch
+            self.filtered_yaw = 0.2 * self.yaw + 0.8 * self.filtered_yaw
+            
+            # Átváltás radiánba
+            yaw = np.radians(self.filtered_yaw)
+            pitch = np.radians(self.filtered_pitch)
+            roll = np.radians(self.filtered_roll)
+            
+            # Quaternion számítás
+            cy = np.cos(yaw * 0.5)
+            sy = np.sin(yaw * 0.5)
+            cp = np.cos(pitch * 0.5)
+            sp = np.sin(pitch * 0.5)
+            cr = np.cos(roll * 0.5)
+            sr = np.sin(roll * 0.5)
+            
+            qw = cr * cp * cy + sr * sp * sy
+            qx = sr * cp * cy - cr * sp * sy
+            qy = cr * sp * cy + sr * cp * sy
+            qz = cr * cp * sy - sr * sp * cy
+            
+            # Kamera irány vektorok
+            forward = np.array([
+                -2.0 * (qx * qz + qw * qy),
+                -2.0 * (qy * qz - qw * qx),
+                -1.0 - 2.0 * (qx * qx + qy * qy)
+            ])
+            
+            up = np.array([
+                2.0 * (qx * qy - qw * qz),
+                1.0 - 2.0 * (qx * qx + qz * qz),
+                2.0 * (qy * qz + qw * qx)
+            ])
+            
+            self.camera_front = forward / np.linalg.norm(forward)
+            self.camera_up = up / np.linalg.norm(up)
 
     def process_input(self, delta_time):
         running = True
@@ -203,5 +230,5 @@ if __name__ == "__main__":
     - SPACE, LSHIFT: Fel / Le
     - ESC: Kilépés
     """)
-    viewer = PointCloudViewer("centered_sampled2.ply")
+    viewer = PointCloudViewer("centered_sampled2.ply", host='127.0.0.1')
     viewer.run()
