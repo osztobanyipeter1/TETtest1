@@ -15,55 +15,58 @@ class PointCloudViewer:
         self.socket.connect((host, port))
         print("Connected to AR glasses server")
         
-        self.roll = 0.0
+        self.roll = 0.0 #orientációs adatok fokban
         self.pitch = 0.0
         self.yaw = 0.0
-        self.filtered_roll = 0.0
+        self.filtered_roll = 0.0 #aluláteresztős szűrővel simított értékek
         self.filtered_pitch = 0.0
         self.filtered_yaw = 0.0
-        self.lock = threading.Lock()
+        self.lock = threading.Lock() #hozzáférés a megosztott változókhoz
         
         self.running = True
         self.thread = threading.Thread(target=self.receive_data)
         self.thread.daemon = True
         self.thread.start()
 
-        self.pcd = o3d.io.read_point_cloud(point_cloud_file)
+        self.pcd = o3d.io.read_point_cloud(point_cloud_file) #pontfelhő betöltése
         self.vertices = np.asarray(self.pcd.points)
-        self.colors = np.asarray(self.pcd.colors) if self.pcd.has_colors() else np.ones_like(self.vertices) * 0.7
+        self.colors = np.asarray(self.pcd.colors) if self.pcd.has_colors() else np.ones_like(self.vertices) * 0.7 #ha nincsenek színek, akkor alapértelmezett szürke színt használ
 
-        self.center = np.mean(self.vertices, axis=0)
-        self.bounds_min = np.min(self.vertices, axis=0)
-        self.bounds_max = np.max(self.vertices, axis=0)
+        #pontfelhő statisztikák készítése
+        self.center = np.mean(self.vertices, axis=0) #pontfelhő középpont
+        self.bounds_min = np.min(self.vertices, axis=0) #pontfelhő min határ
+        self.bounds_max = np.max(self.vertices, axis=0) #pontfelhő max határ
         print(f"Pontfelhő középpontja: {self.center}")
         print(f"Kiterjedése: min={self.bounds_min}, max={self.bounds_max}")
 
+        #kamera kezdő pozíciója
         self.camera_pos = self.center + np.array([0.0, 0.0, 5.0], dtype=np.float32)
         self.camera_front = np.array([0.0, 0.0, -1.0], dtype=np.float32)
         self.camera_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
         
-        self.max_distance = 5.0
-        self.fov_cos = np.cos(np.radians(90))
-        self.point_size = 3.0
-        self.movement_speed = 1.0
+        self.max_distance = 5.0 #maximális megjelenítési távolság
+        self.fov_cos = np.cos(np.radians(90)) #látómező értéke
+        self.point_size = 3.0 #pontok mérete
+        self.movement_speed = 1.0 #kamera mozgási sebessége
 
-        self.alpha_value = 0.6
+        self.alpha_value = 0.6 #mennyire legyen sima a felület
+        #ezek azért vannak, hogy ne számoljuk újra minden képkockában
         self.last_visible_hash = None
         self.mesh_triangles = None
         self.mesh_vertices = None
 
-        pygame.init()
+        pygame.init() #létrehozza a megjelenítő ablakot
         self.display = (1980, 1200)
-        pygame.display.set_mode(self.display, DOUBLEBUF | OPENGL)
-        pygame.mouse.set_visible(True)
+        pygame.display.set_mode(self.display, DOUBLEBUF | OPENGL) #az OPENGL miatt tudunk navigálni az ablakban
+        pygame.mouse.set_visible(True) #egérkurzor láthatósága
 
-        glMatrixMode(GL_PROJECTION)
-        gluPerspective(45, (self.display[0] / self.display[1]), 0.1, 100.0)
-        glMatrixMode(GL_MODELVIEW)
-        glEnable(GL_DEPTH_TEST)
-        glPointSize(self.point_size)
+        glMatrixMode(GL_PROJECTION) #3D világ 2D-be vetítése
+        gluPerspective(45, (self.display[0] / self.display[1]), 0.1, 100.0) # 45=látómező szöge, 0.1 és 100 pedig a minden ami közelebb van, mint 0.1 vagy távolabb, mint 100, az biztosan nem látható
+        glMatrixMode(GL_MODELVIEW) #objektudom elhelyezése a világban (pl. kamera)
+        glEnable(GL_DEPTH_TEST) #csak azok a pixelek rajzolódnak ki, amik közelebb vannak a nézőponthoz
+        glPointSize(self.point_size) #beállítja a pontok megadott méretét
 
-    def receive_data(self):
+    def receive_data(self): #fogadja a socketen jövő adatokat JSON formátumban
         buffer = ""
         while self.running:
             try:
@@ -78,7 +81,7 @@ class PointCloudViewer:
                         try:
                             orientation = json.loads(line)
                             with self.lock:
-                                self.roll = orientation['roll']
+                                self.roll = orientation['roll'] #frissíti a koordinációs adatokat
                                 self.pitch = orientation['pitch']
                                 self.yaw = orientation['yaw']
                         except json.JSONDecodeError:
@@ -89,8 +92,8 @@ class PointCloudViewer:
 
     def update_camera_orientation(self):
         with self.lock:
-            # Szűrés alkalmazása
-            self.filtered_roll = 0.2 * self.roll + 0.8 * self.filtered_roll
+            # Szűrés alkalmazása (aluláteresztő szűrő)
+            self.filtered_roll = 0.2 * self.roll + 0.8 * self.filtered_roll #elnyomja a hirtelen kiugró adatokat, vagy a mérési zajt! 0.2 súlyt kap a friss adat, és 0.8-at a korábbi szűrt érték
             self.filtered_pitch = 0.2 * self.pitch + 0.8 * self.filtered_pitch
             self.filtered_yaw = 0.2 * self.yaw + 0.8 * self.filtered_yaw
             
@@ -132,7 +135,7 @@ class PointCloudViewer:
         running = True
         move_direction = np.zeros(3, dtype=np.float32)
 
-        for event in pygame.event.get():
+        for event in pygame.event.get(): #kilépés
             if event.type == pygame.QUIT:
                 return False
             elif event.type == pygame.KEYDOWN:
@@ -174,64 +177,67 @@ class PointCloudViewer:
         return running
 
     def get_visible_points(self):
-        directions = self.vertices - self.camera_pos
-        distances = np.linalg.norm(directions, axis=1)
-        directions_normalized = directions / distances[:, np.newaxis]
+        directions = self.vertices - self.camera_pos #vektorok pozíciójának számolása a kamera pozíciójából
+        distances = np.linalg.norm(directions, axis=1) #euklideszi távolság számolása, tehát, hogy milyen messze vannak a pontok a kamerától
+        directions_normalized = directions / distances[:, np.newaxis] #egységvektorrá alakítás
 
-        dot = np.dot(directions_normalized, self.camera_front)
-        mask = (distances < self.max_distance) & (dot > self.fov_cos)
+        dot = np.dot(directions_normalized, self.camera_front) #skaláris szorzat a normalizált irányvektorok és a kamera nézeti iránya között
+        mask = (distances < self.max_distance) & (dot > self.fov_cos) #láthatósági feltétel, a legyen közelebb, mint a max távolság, és legyen a látómezőben
 
-        return self.vertices[mask], self.colors[mask]
+        return self.vertices[mask], self.colors[mask] #visszaadott pontok és színe
     
     def generate_alpha_mesh(self, points, alpha=None):
-        alpha = alpha if alpha is not None else self.alpha_value
-        if len(points)<10:
+        alpha = alpha if alpha is not None else self.alpha_value #a generált felület simaságát határozza meg, ha nincs megadva más, akkor a megadott alpha value alapján
+        if len(points)<10: #random feltétel, hogy ha kevés a megjelenő pont, akkor nem generál felületet
             self.mesh_triangles = None
             self.mesh_vertices = None
         
-        pcd = o3d.geometry.PointCloud()
+        pcd = o3d.geometry.PointCloud() #pontfelhő létrehozása
         pcd.points = o3d.utility.Vector3dVector(points)
         try:
-            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
+            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha) #mesh készítés
+            #feldolgozandó adatmennyiség csökkentése
             mesh.remove_duplicated_vertices()
             mesh.remove_degenerate_triangles()
             mesh.remove_duplicated_triangles()
             
-            self.mesh_vertices = np.asarray(mesh.vertices)
+            #itt mentjük az eredményeket, lokáliskoordinátákat
+            self.mesh_vertices = np.asarray(mesh.vertices) 
             self.mesh_triangles = np.asarray(mesh.triangles)
         except Exception as e:
-            print("Hiba az alpha shape generáláskor: ",e)
+            print("Hiba az alpha shape generáláskor: ",e) #pl ha túl kicsi al alpha
             self.mesh_vertices = None
             self.mesh_triangles = None
 
     def render(self):
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT) #törli a szín és a mélységbuffert mindig, ergo az előző képkocka információit
 
-        glMatrixMode(GL_MODELVIEW)
+        #betölti az egységmátrixot és nullázza az előző transzformációt
+        glMatrixMode(GL_MODELVIEW) 
         glLoadIdentity()
 
-        self.update_camera_orientation()
+        self.update_camera_orientation() #irányok fetchelése
         
-        cam_target = self.camera_pos + self.camera_front
-        gluLookAt(*self.camera_pos, *cam_target, *self.camera_up)
+        cam_target = self.camera_pos + self.camera_front #célpont
+        gluLookAt(*self.camera_pos, *cam_target, *self.camera_up) #beállítja a kamera pozícióját
 
-        visible_points, _ = self.get_visible_points()
+        visible_points, _ = self.get_visible_points() #látható pontok fetch
 
-        current_hash = hash(visible_points.tobytes())
-        if current_hash != self.last_visible_hash:
+        current_hash = hash(visible_points.tobytes()) #láthatóság számítása
+        if current_hash != self.last_visible_hash: #csak akkor generál új mesht ha változott a pontok halmaza egy adott területen
             self.generate_alpha_mesh(visible_points)
             self.last_visible_hash = current_hash
 
-        glBegin(GL_POINTS)
-        for point in visible_points:
+        glBegin(GL_POINTS) #minden pontot lerajzol külön
+        for point in visible_points: #színátmenetes távolság
             distance = np.linalg.norm(point - self.camera_pos)
             t = min(distance / self.max_distance, 1.0)
 
-            if t < 0.5:
+            if t < 0.5: #közeli pontok: pirosból zöld átmenet
                 r = 1.0 - 2 * t
                 g = 2 * t
                 b = 0.0
-            else:
+            else: #távoli pontok: zöldből kék átmenet
                 t2 = (t - 0.5) * 2
                 r = 0.0
                 g = 1.0 - t2
@@ -243,9 +249,9 @@ class PointCloudViewer:
 
         # Alpha shape 
         if self.mesh_triangles is not None and self.mesh_vertices is not None:
-            glEnable(GL_BLEND)
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-            glColor4f(0.2, 0.6, 1.0, 0.3)
+            glEnable(GL_BLEND) #színkeverés engedélyezése
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA) #forrás szín alpha komponensével szoroz
+            glColor4f(0.2, 0.6, 1.0, 0.3) 
 
             glBegin(GL_TRIANGLES)
             for tri in self.mesh_triangles:
@@ -267,14 +273,14 @@ class PointCloudViewer:
                     glColor4f(r, g, b, 1) 
                     glVertex3fv(vertex)
             glEnd()
-            glLineWidth(1.0)
-            glColor3f(0.0, 0.0, 0.0)  # black color for edges
+            glLineWidth(1.0) #él vastagság
+            glColor3f(0.0, 0.0, 0.0)  #fekete élek
             for tri in self.mesh_triangles:
                 glBegin(GL_LINE_LOOP)
                 for idx in tri:
                     glVertex3fv(self.mesh_vertices[idx])
                 glEnd()
-            glDisable(GL_BLEND)
+            glDisable(GL_BLEND) #színkeverés
 
 
         pygame.display.flip()
@@ -289,24 +295,18 @@ class PointCloudViewer:
             running = self.process_input(delta_time)
             self.render()
 
-            if time.time() - last_print_time > 0.5:
+            if time.time() - last_print_time > 0.5: #fél másodpercenként frissül a kimenet
                 visible_points, _ = self.get_visible_points()
                 with self.lock:
                     print(f"Orientáció - Roll: {self.roll:.2f}, Pitch: {self.pitch:.2f}, Yaw: {self.yaw:.2f}")
                     print(f"Látható pontok: {len(visible_points)}, Pozíció: {self.camera_pos}")
                 last_print_time = time.time()
 
-        self.running = False
+        self.running = False #jelet küld az adatfogadónak, ha leáll
         self.thread.join()
         self.socket.close()
         pygame.quit()
 
 if __name__ == "__main__":
-    print("""
-    Vezérlés:
-    - W, A, S, D: Mozgás
-    - SPACE, LSHIFT: Fel / Le
-    - ESC: Kilépés
-    """)
     viewer = PointCloudViewer("cave_sampled.ply", host='127.0.0.1')
     viewer.run()
