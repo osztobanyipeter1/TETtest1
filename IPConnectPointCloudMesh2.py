@@ -279,7 +279,7 @@ class PointCloudViewer:
             running = self.process_input(delta_time)
             self.render()
 
-            if time.time() - last_print_time > 0.5: #fél másodpercenként frissül a kimenet
+            if time.time() - last_print_time > 0.05: #fél másodpercenként frissül a kimenet
                 visible_points, _ = self.get_visible_points()
                 with self.lock:
                     print(f"Orientáció - Roll: {self.roll:.2f}, Pitch: {self.pitch:.2f}, Yaw: {self.yaw:.2f}")
