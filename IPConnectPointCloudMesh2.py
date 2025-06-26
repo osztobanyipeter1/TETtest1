@@ -66,12 +66,18 @@ class PointCloudViewer:
         glEnable(GL_DEPTH_TEST) #csak azok a pixelek rajzolódnak ki, amik közelebb vannak a nézőponthoz
         glPointSize(self.point_size) #beállítja a pontok megadott méretét
 
-    def receive_data(self): #fogadja a socketen jövő adatokat JSON formátumban
+        self.quaternion_w = 1.0
+        self.quaternion_x = 0.0
+        self.quaternion_y = 0.0
+        self.quaternion_z = 0.0
+
+    def receive_data(self):
         buffer = ""
         while self.running:
             try:
                 data = self.socket.recv(1024).decode()
                 if not data:
+                    print("No data received, connection might be closed")
                     break
                     
                 buffer += data
@@ -79,41 +85,65 @@ class PointCloudViewer:
                     line, buffer = buffer.split('\n', 1)
                     if line.strip():
                         try:
-                            orientation = json.loads(line)
+                            quat_data = json.loads(line)
                             with self.lock:
-                                self.roll = orientation['roll'] #frissíti a koordinációs adatokat
-                                self.pitch = orientation['pitch']
-                                self.yaw = orientation['yaw']
-                        except json.JSONDecodeError:
-                            print("Invalid data:", line)
+                                # Frissítjük a kvaternió értékeket
+                                self.quaternion_w = quat_data['w']
+                                self.quaternion_x = quat_data['x']
+                                self.quaternion_y = quat_data['y']
+                                self.quaternion_z = quat_data['z']
+                        except json.JSONDecodeError as e:
+                            print(f"Invalid data: {line}, Error: {e}")
+                        except KeyError as e:
+                            print(f"Missing key in data: {e}, Line: {line}")
             except Exception as e:
-                print("Socket error:", e)
+                print(f"Socket error: {e}")
                 break
 
     def update_camera_orientation(self):
         with self.lock:
-            # Szűrés alkalmazása (aluláteresztő szűrő)
-            self.filtered_roll = 0.2 * self.roll + 0.8 * self.filtered_roll #elnyomja a hirtelen kiugró adatokat, vagy a mérési zajt! 0.2 súlyt kap a friss adat, és 0.8-at a korábbi szűrt érték
-            self.filtered_pitch = 0.2 * self.pitch + 0.8 * self.filtered_pitch
-            self.filtered_yaw = 0.2 * self.yaw + 0.8 * self.filtered_yaw
+            # A kvaternió komponensek
+            q_w = self.quaternion_w
+            q_x = self.quaternion_x
+            q_y = self.quaternion_y
+            q_z = self.quaternion_z
             
-            # Átváltás radiánba
-            yaw = np.radians(self.filtered_yaw)
-            pitch = np.radians(self.filtered_pitch)
-            roll = np.radians(self.filtered_roll)
-        
-            # Kamera irányok Euler szögekkel
+            # Normalizáljuk a kvaterniót
+            norm = np.sqrt(q_w**2 + q_x**2 + q_y**2 + q_z**2)
+            q_w /= norm
+            q_x /= norm
+            q_y /= norm
+            q_z /= norm
+            
+            # Koordináta-rendszer korrekciók:
+            # 1. X és Y tengely felcserélése (javítja a pitch-roll cserét)
+            # 2. Z tengely irányának megfordítása (javítja a yaw irányát)
+            temp = q_x
+            q_x = q_z
+            q_z = temp
+            q_y = -q_y
+            
+            # Kamera irányok számítása a kvaternióból
+            # Előre mutató vektor (Z tengely)
             self.camera_front = np.array([
-                np.cos(yaw) * np.cos(pitch),
-                np.sin(pitch),
-                np.sin(yaw) * np.cos(pitch)
+                2 * (q_x * q_z + q_w * q_y),
+                2 * (q_y * q_z - q_w * q_x),
+                1 - 2 * (q_x**2 + q_y**2)
             ])
             
+            # Felfelé mutató vektor (Y tengely)
             self.camera_up = np.array([
-                np.sin(roll)*np.sin(yaw) - np.cos(roll)*np.cos(yaw)*np.sin(pitch),
-                np.cos(roll)*np.cos(pitch),
-                np.sin(roll)*np.cos(yaw)*np.sin(pitch) + np.cos(roll)*np.sin(yaw)
+                2 * (q_x * q_y - q_w * q_z),
+                1 - 2 * (q_x**2 + q_z**2),
+                2 * (q_y * q_z + q_w * q_x)
             ])
+            
+            # Normalizálás
+            self.camera_front /= np.linalg.norm(self.camera_front)
+            self.camera_up /= np.linalg.norm(self.camera_up)
+            
+            # Diagnosztikai kiírás
+            print(f"Camera Front: {self.camera_front}, Up: {self.camera_up}")
 
     def process_input(self, delta_time):
         running = True
@@ -201,6 +231,8 @@ class PointCloudViewer:
         glLoadIdentity()
 
         self.update_camera_orientation() #irányok fetchelése
+
+        print(f"Camera Front: {self.camera_front}, Camera Up: {self.camera_up}")
         
         cam_target = self.camera_pos + self.camera_front #célpont
         gluLookAt(*self.camera_pos, *cam_target, *self.camera_up) #beállítja a kamera pozícióját
@@ -282,8 +314,9 @@ class PointCloudViewer:
             if time.time() - last_print_time > 0.05: #fél másodpercenként frissül a kimenet
                 visible_points, _ = self.get_visible_points()
                 with self.lock:
-                    print(f"Orientáció - Roll: {self.roll:.2f}, Pitch: {self.pitch:.2f}, Yaw: {self.yaw:.2f}")
-                    print(f"Látható pontok: {len(visible_points)}, Pozíció: {self.camera_pos}")
+                    print(f"Orientáció - Roll (billenés): {self.roll:.2f}, Pitch (fel-le): {self.pitch:.2f}, Yaw (jobbra-balra): {self.yaw:.2f}")
+                    print(f"Látható pontok: {len(visible_points)}")
+                    #print(f"Látható pontok: {len(visible_points)}, Pozíció: {self.camera_pos}")
                 last_print_time = time.time()
 
         self.running = False #jelet küld az adatfogadónak, ha leáll
