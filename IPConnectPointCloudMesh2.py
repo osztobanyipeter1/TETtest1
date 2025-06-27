@@ -102,7 +102,6 @@ class PointCloudViewer:
 
     def update_camera_orientation(self):
         with self.lock:
-            # A kvaternió komponensek
             q_w = self.quaternion_w
             q_x = self.quaternion_x
             q_y = self.quaternion_y
@@ -115,13 +114,10 @@ class PointCloudViewer:
             q_y /= norm
             q_z /= norm
             
-            # Koordináta-rendszer korrekciók:
-            # 1. X és Y tengely felcserélése (javítja a pitch-roll cserét)
-            # 2. Z tengely irányának megfordítása (javítja a yaw irányát)
-            temp = q_x
-            q_x = q_z #ez jó
-            q_z = -temp
+            q_x = -q_x
             q_y = q_y
+            q_z = -q_z
+            # w marad változatlan
             
             # Kvaternióból forgatási mátrix
             def quaternion_to_rotation_matrix(q_w, q_x, q_y, q_z):
@@ -140,9 +136,6 @@ class PointCloudViewer:
             # Normalizálás
             self.camera_front /= np.linalg.norm(self.camera_front)
             self.camera_up /= np.linalg.norm(self.camera_up)
-            
-            # Diagnosztikai kiírás
-            print(f"Camera Front: {self.camera_front}, Up: {self.camera_up}")
 
     def process_input(self, delta_time):
         running = True
