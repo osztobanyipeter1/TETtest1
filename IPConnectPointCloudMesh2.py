@@ -119,24 +119,23 @@ class PointCloudViewer:
             # 1. X és Y tengely felcserélése (javítja a pitch-roll cserét)
             # 2. Z tengely irányának megfordítása (javítja a yaw irányát)
             temp = q_x
-            q_x = q_z
-            q_z = temp
-            q_y = -q_y
+            q_x = q_z #ez jó
+            q_z = -temp
+            q_y = q_y
             
-            # Kamera irányok számítása a kvaternióból
-            # Előre mutató vektor (Z tengely)
-            self.camera_front = np.array([
-                2 * (q_x * q_z + q_w * q_y),
-                2 * (q_y * q_z - q_w * q_x),
-                1 - 2 * (q_x**2 + q_y**2)
-            ])
-            
-            # Felfelé mutató vektor (Y tengely)
-            self.camera_up = np.array([
-                2 * (q_x * q_y - q_w * q_z),
-                1 - 2 * (q_x**2 + q_z**2),
-                2 * (q_y * q_z + q_w * q_x)
-            ])
+            # Kvaternióból forgatási mátrix
+            def quaternion_to_rotation_matrix(q_w, q_x, q_y, q_z):
+                R = np.array([
+                    [1 - 2*(q_y**2 + q_z**2), 2*(q_x*q_y - q_z*q_w), 2*(q_x*q_z + q_y*q_w)],
+                    [2*(q_x*q_y + q_z*q_w), 1 - 2*(q_x**2 + q_z**2), 2*(q_y*q_z - q_x*q_w)],
+                    [2*(q_x*q_z - q_y*q_w), 2*(q_y*q_z + q_x*q_w), 1 - 2*(q_x**2 + q_y**2)]
+                ])
+                return R
+
+            # Kamera irányok a mátrixból
+            R = quaternion_to_rotation_matrix(q_w, q_x, q_y, q_z)
+            self.camera_front = R[:, 2]  # Z tengely = előre
+            self.camera_up = R[:, 1]     # Y tengely = felfelé
             
             # Normalizálás
             self.camera_front /= np.linalg.norm(self.camera_front)
