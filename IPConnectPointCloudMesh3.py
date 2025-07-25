@@ -90,17 +90,17 @@ def animate(i):
     ax1.plot(td, xd, label='x (raw)', color='red')
     ax1.plot(td, xf, label='x (filtered)', color='green')
     ax1.legend()
-    ax1.set_ylabel('X')
+    ax1.set_ylabel('X (Előre-Hátra)')
 
     ax2.plot(td, yd, label='y (raw)', color='blue')
     ax2.plot(td, yf, label='y (filtered)', color='green')
     ax2.legend()
-    ax2.set_ylabel('Y')
+    ax2.set_ylabel('Y Fel-Le')
 
     ax3.plot(td, zd, label='z (raw)', color='orange')
     ax3.plot(td, zf, label='z (filtered)', color='green')
     ax3.legend()
-    ax3.set_ylabel('Z')
+    ax3.set_ylabel('Z Jobbra-Balra')
     ax3.set_xlabel('Time (s)')
 
 data_recv_thread = threading.Thread(target=data_thread, daemon=True)
