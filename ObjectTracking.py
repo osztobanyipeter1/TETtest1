@@ -8,14 +8,14 @@ lk_params = dict(winSize  = (15, 15),
                 criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 
 feature_params = dict(maxCorners = 20,
-                    qualityLevel = 0.3,
-                    minDistance = 10,
+                    qualityLevel = 0.3, #csak az ennél jobb minőségű sarkokat menti
+                    minDistance = 10, #talált sarkok közötti legnagyobb táv
                     blockSize = 7 )
 
 
 trajectory_len = 20
 detect_interval = 1
-trajectories = []
+trajectories = [] #ebben vannak tárolva a talált pontok
 frame_idx = 0
 
 
@@ -47,13 +47,19 @@ while True:
             if not good_flag:
                 continue
             trajectory.append((x, y))
+
+            if len(trajectories) > 0:
+                x, y = trajectories[0][-1]
+                print(f"Első pont koordinátája: x={x}, y={y}")
+
             if len(trajectory) > trajectory_len:
                 del trajectory[0]
             new_trajectories.append(trajectory)
             # Newest detected point
             cv2.circle(img, (int(x), int(y)), 2, (0, 0, 255), -1)
-
+            
         trajectories = new_trajectories
+        
 
         # Draw all the trajectories
         cv2.polylines(img, [np.int32(trajectory) for trajectory in trajectories], False, (0, 255, 0))
