@@ -1,50 +1,71 @@
 import cv2
-import numpy as np
-from engine.object_detection import ObjectDetection #az fix, hogy nekem nincsen ilyen engine.object_detection fileom, szoval ehelyett kell valami
-from engine.object_tracking import MultiObjectTracking
+from ultralytics import YOLO
 
-#load the object detection model
-od = ObjectDetection("models/yolo11m.pt") #https://cocodataset.org/#explore
+import logging
+logging.getLogger("ultralytics").setLevel(logging.ERROR)
 
-#load video
-cap = cv2.VideoCapture('video.mp4')
+model = YOLO('yolov8s.pt')
+cap = cv2.VideoCapture(4)
 
-#load the object tracking model
-mot = MultiObjectTracking()
-tracker = mot.ocsort(min_hits=3, max_age=10, iou_threshold=0.5) #nemtudom mik ezek de lehet nem is kell
+prev_area = None
+direction_text = ""
+prev_centre_x = None
 
 while True:
     ret, frame = cap.read()
     if not ret:
         break
+    results = model(frame)
+    largest_area = 0
+    largest_center_x = None
 
-    #detect objects in the frame
-    bboxes, class_ids, scores = od.detect(frame)
-    #for bbox, class_id, score in zip(bboxes, class_ids, scores):
-    #    x1, y1, x2, y2 =bbox
-    #    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-    #
-    #    cv2.putText(frame, od.classes[class_id], (x1,y1-10),
-    #                cv2.FONT_HERSEY_SIMPLEX, 0.9, (36,255,12), 2)
+    for result in results:
+        boxes = result.boxes
+        #classes_names = result.names
+        for box in boxes:
+            if box.conf[0] > 0.5:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                area = (x2 - x1) * (y2 - y1)
+                if area > largest_area:
+                    largest_area = area
+                    largest_center_x = (x1 + x2) // 2
+                cv2.rectangle(frame, (x1,y1), (x2,y2), (0,255,0), 2)
 
-    # update the tracker
-    bboxes_ids = tracker.update(bboxes, class_ids, scores, frame)
-    for bbox_id in bboxes_ids:
-        (x1, y1, x2, y2, obj_id, class_id, score) = np.array(bbox_id)
-        cv2.rectangle(frame, (x1,y1), (x2, y2), (255, 0, 0), 2)
+    area_movement = ""
+    lateral_movement = ""
 
-        #Display object ID
-        cv2.putText(frame, f"ID:{obj_id}", (x1, y1-5),
-                    cv2.FONT_HERSEY_SIMPLEX, 1, (255, 0, 0), 2)
+    if largest_area > 0:
+        if prev_area is not None:
+            if largest_area > prev_area + 1000:
+                direction_text = "közeledik"
+            elif largest_area < prev_area - 1000:
+                direction_text = "távolodik"
+            else:
+                direction_text = "Nincs változás"
+        prev_area = largest_area
 
+    if largest_center_x is not None:
+        if prev_centre_x is not None:
+            if largest_center_x > prev_centre_x + 10:
+                lateral_movement = "jobbra mozog"
+            elif largest_center_x < prev_centre_x - 10:
+                lateral_movement = "balra mozog"
+            else:
+                lateral_movement = " nincs oldalra mozgás"
+        prev_centre_x = largest_center_x
 
-    cv2.imshow(frame)
+    info = ""
+    if area_movement:
+        info += area_movement
+    if lateral_movement:
+        info += (", " if info else "") + lateral_movement
 
-    key = cv2.waitKey(1)
-    if key == 27:
+    #cv2.putText(frame, direction_text, (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+    print(info)
+
+    cv2.imshow("YOLO Object Detection", frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
         break
-    
+
 cap.release()
 cv2.destroyAllWindows()
-
-# https://www.youtube.com/watch?v=w-IuLVibtWM
