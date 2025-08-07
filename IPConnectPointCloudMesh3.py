@@ -85,7 +85,6 @@ class ARPoseTrackingSystem:
 
 class PointCloudViewer:
     def __init__(self, point_cloud_file, host='192.168.249.52', port=12345, camera_id=0):
-        # Eredeti kapcsolatok és beállítások
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect((host, port))
         print("Connected to AR glasses server")
@@ -96,7 +95,7 @@ class PointCloudViewer:
         # Kamera inicializálás
         self.cap = cv2.VideoCapture(camera_id)
         if not self.cap.isOpened():
-            print("Figyelem: Kamera nem érhető el, vizuális tracking kikapcsolva")
+            print("Kamera nem érhető el, vizuális tracking kikapcsolva")
             self.cap = None
         
         # AR Pose Tracking System inicializálás
@@ -114,7 +113,7 @@ class PointCloudViewer:
             self.vision_thread.start()
         
         # Eredeti PointCloud beállítások
-        self.pcd = o3d.io.read_point_cloud(point_cloud_file)
+        self.pcd = o3d.io.read_point_cloud(point_cloud_file) #pontfelhő betöltése
         self.vertices = np.asarray(self.pcd.points)
         self.colors = np.asarray(self.pcd.colors) if self.pcd.has_colors() else np.ones_like(self.vertices) * 0.7
         
@@ -124,18 +123,18 @@ class PointCloudViewer:
         print(f"Pontfelhő középpontja: {self.center}")
         print(f"Kiterjedése: min={self.bounds_min}, max={self.bounds_max}")
         
-        # Kamera kezdő pozíció (most AR tracking által módosítható)
+        #kamera kezdő pozíciója
         self.camera_pos = self.center + np.array([0.0, 0.0, 5.0], dtype=np.float32)
         self.camera_front = np.array([0.0, 0.0, -1.0], dtype=np.float32)
         self.camera_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
         
-        self.max_distance = 5.0
-        self.fov_cos = np.cos(np.radians(90))
-        self.point_size = 3.0
-        self.movement_speed = 1.0
-        self.alpha_value = 0.6
-        
-        # Mesh cache
+        self.max_distance = 5.0 #maximális megjelenítési távolság
+        self.fov_cos = np.cos(np.radians(90)) #látómező értéke
+        self.point_size = 3.0 #pontok mérete
+        self.movement_speed = 1.0 #kamera mozgási sebessége
+
+        self.alpha_value = 0.6 #mennyire legyen sima a felület
+        #ezek azért vannak, hogy ne számoljuk újra minden képkockában
         self.last_visible_hash = None
         self.mesh_triangles = None
         self.mesh_vertices = None
@@ -146,17 +145,16 @@ class PointCloudViewer:
         self.quaternion_y = 0.0
         self.quaternion_z = 0.0
         
-        # PyGame és OpenGL inicializálás
-        pygame.init()
+        pygame.init() #létrehozza a megjelenítő ablakot
         self.display = (1980, 1200)
-        pygame.display.set_mode(self.display, DOUBLEBUF | OPENGL)
-        pygame.mouse.set_visible(True)
-        
-        glMatrixMode(GL_PROJECTION)
-        gluPerspective(45, (self.display[0] / self.display[1]), 0.1, 100.0)
-        glMatrixMode(GL_MODELVIEW)
-        glEnable(GL_DEPTH_TEST)
-        glPointSize(self.point_size)
+        pygame.display.set_mode(self.display, DOUBLEBUF | OPENGL) #az OPENGL miatt tudunk navigálni az ablakban
+        pygame.mouse.set_visible(True) #egérkurzor láthatósága
+
+        glMatrixMode(GL_PROJECTION) #3D világ 2D-be vetítése
+        gluPerspective(45, (self.display[0] / self.display[1]), 0.1, 100.0) # 45=látómező szöge, 0.1 és 100 pedig a minden ami közelebb van, mint 0.1 vagy távolabb, mint 100, az biztosan nem látható
+        glMatrixMode(GL_MODELVIEW) #objektudom elhelyezése a világban (pl. kamera)
+        glEnable(GL_DEPTH_TEST) #csak azok a pixelek rajzolódnak ki, amik közelebb vannak a nézőponthoz
+        glPointSize(self.point_size) #beállítja a pontok megadott méretét
 
     def receive_orientation_data(self):
         """Orientáció fogadása a Rust szerverről"""
@@ -499,7 +497,6 @@ class PointCloudViewer:
             
         # Kvaternió -> rotációs mátrix
         R = self.quaternion_to_rotation_matrix(q_w, q_x, q_y, q_z)
-        
         # Kamera irányok frissítése
         self.camera_front = R[:, 2]  # Z tengely
         self.camera_up = R[:, 1]     # Y tengely
@@ -512,7 +509,7 @@ class PointCloudViewer:
         """Input kezelés (eredeti kód)"""
         move_direction = np.zeros(3, dtype=np.float32)
         
-        for event in pygame.event.get():
+        for event in pygame.event.get(): #kilépés
             if event.type == pygame.QUIT:
                 return False
             elif event.type == pygame.KEYDOWN:
@@ -553,76 +550,82 @@ class PointCloudViewer:
         return True
 
     def get_visible_points(self):
-        """Látható pontok meghatározása (eredeti kód)"""
-        directions = self.vertices - self.camera_pos
-        distances = np.linalg.norm(directions, axis=1)
-        directions_normalized = directions / distances[:, np.newaxis]
-        
-        dot = np.dot(directions_normalized, self.camera_front)
-        mask = (distances < self.max_distance) & (dot > self.fov_cos)
-        
-        return self.vertices[mask], self.colors[mask]
+        directions = self.vertices - self.camera_pos #vektorok pozíciójának számolása a kamera pozíciójából
+        distances = np.linalg.norm(directions, axis=1) #euklideszi távolság számolása, tehát, hogy milyen messze vannak a pontok a kamerától
+        directions_normalized = directions / distances[:, np.newaxis] #egységvektorrá alakítás
+
+        dot = np.dot(directions_normalized, self.camera_front) #skaláris szorzat a normalizált irányvektorok és a kamera nézeti iránya között
+        mask = (distances < self.max_distance) & (dot > self.fov_cos) #láthatósági feltétel, a legyen közelebb, mint a max távolság, és legyen a látómezőben
+
+        return self.vertices[mask], self.colors[mask] #visszaadott pontok és színe
 
     def generate_alpha_mesh(self, points, alpha=None):
-        """Alpha shape mesh generálás (eredeti kód)"""
-        alpha = alpha if alpha is not None else self.alpha_value
-        if len(points) < 10:
+        alpha = alpha if alpha is not None else self.alpha_value #a generált felület simaságát határozza meg, ha nincs megadva más, akkor a megadott alpha value alapján
+        if len(points)<10: #random feltétel, hogy ha kevés a megjelenő pont, akkor nem generál felületet
             self.mesh_triangles = None
             self.mesh_vertices = None
-            return
-            
-        pcd = o3d.geometry.PointCloud()
+        
+        pcd = o3d.geometry.PointCloud() #pontfelhő létrehozása
         pcd.points = o3d.utility.Vector3dVector(points)
         try:
-            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
+            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha) #mesh készítés
+            #feldolgozandó adatmennyiség csökkentése
             mesh.remove_duplicated_vertices()
             mesh.remove_degenerate_triangles()
             mesh.remove_duplicated_triangles()
             
-            self.mesh_vertices = np.asarray(mesh.vertices)
+            #itt mentjük az eredményeket, lokáliskoordinátákat
+            self.mesh_vertices = np.asarray(mesh.vertices) 
             self.mesh_triangles = np.asarray(mesh.triangles)
         except Exception as e:
+            print("Hiba az alpha shape generáláskor: ",e) #pl ha túl kicsi al alpha
             self.mesh_vertices = None
             self.mesh_triangles = None
 
     def render(self):
-        """Renderelés (eredeti kód kiegészítve)"""
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        glMatrixMode(GL_MODELVIEW)
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT) #törli a szín és a mélységbuffert mindig, ergo az előző képkocka információit
+
+        #betölti az egységmátrixot és nullázza az előző transzformációt
+        glMatrixMode(GL_MODELVIEW) 
         glLoadIdentity()
+
+        self.update_camera_orientation() #irányok fetchelése
+
+        print(f"Camera Front: {self.camera_front}, Camera Up: {self.camera_up}")
         
-        self.update_camera_orientation()
-        
-        cam_target = self.camera_pos + self.camera_front
-        gluLookAt(*self.camera_pos, *cam_target, *self.camera_up)
-        
-        visible_points, _ = self.get_visible_points()
-        
-        current_hash = hash(visible_points.tobytes())
-        if current_hash != self.last_visible_hash:
+        cam_target = self.camera_pos + self.camera_front #célpont
+        gluLookAt(*self.camera_pos, *cam_target, *self.camera_up) #beállítja a kamera pozícióját
+
+        visible_points, _ = self.get_visible_points() #látható pontok fetch
+
+        current_hash = hash(visible_points.tobytes()) #láthatóság számítása
+        if current_hash != self.last_visible_hash: #csak akkor generál új mesht ha változott a pontok halmaza egy adott területen
             self.generate_alpha_mesh(visible_points)
             self.last_visible_hash = current_hash
-        
-        # Pontok rajzolása
-        glBegin(GL_POINTS)
-        for point in visible_points:
+
+        glBegin(GL_POINTS) #minden pontot lerajzol külön
+        for point in visible_points: #színátmenetes távolság
             distance = np.linalg.norm(point - self.camera_pos)
             t = min(distance / self.max_distance, 1.0)
-            
-            if t < 0.5:
-                r, g, b = 1.0 - 2 * t, 2 * t, 0.0
-            else:
+
+            if t < 0.5: #közeli pontok: pirosból zöld átmenet
+                r = 1.0 - 2 * t
+                g = 2 * t
+                b = 0.0
+            else: #távoli pontok: zöldből kék átmenet
                 t2 = (t - 0.5) * 2
-                r, g, b = 0.0, 1.0 - t2, t2
-            
+                r = 0.0
+                g = 1.0 - t2
+                b = t2
+
             glColor3f(r, g, b)
             glVertex3fv(point)
         glEnd()
         
         # Alpha shape rendering
         if self.mesh_triangles is not None and self.mesh_vertices is not None:
-            glEnable(GL_BLEND)
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            glEnable(GL_BLEND) #színkeverés engedélyezése
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA) #forrás szín alpha komponensével szoroz
             
             glBegin(GL_TRIANGLES)
             for tri in self.mesh_triangles:
