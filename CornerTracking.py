@@ -20,7 +20,7 @@ trajectories = [] #ebben vannak tárolva a talált pontok
 frame_idx = 0
 
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(4)
 
 prev_avg_dist = None
 

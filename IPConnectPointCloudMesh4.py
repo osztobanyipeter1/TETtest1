@@ -151,7 +151,7 @@ class PointCloudViewer:
         self.quaternion_z = 0.0
         
         pygame.init() #létrehozza a megjelenítő ablakot
-        self.display = (1980, 1200)
+        self.display = (2500, 1500)
         pygame.display.set_mode(self.display, DOUBLEBUF | OPENGL) #az OPENGL miatt tudunk navigálni az ablakban
         pygame.mouse.set_visible(True) #egérkurzor láthatósága
 
