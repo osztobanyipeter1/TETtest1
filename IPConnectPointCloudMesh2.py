@@ -44,7 +44,7 @@ class PointCloudViewer:
         self.camera_front = np.array([0.0, 0.0, -1.0], dtype=np.float32)
         self.camera_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
         
-        self.max_distance = 5.0 #maximális megjelenítési távolság
+        self.max_distance = 10.0 #maximális megjelenítési távolság
         self.fov_cos = np.cos(np.radians(90)) #látómező értéke
         self.point_size = 3.0 #pontok mérete
         self.movement_speed = 1.0 #kamera mozgási sebessége
