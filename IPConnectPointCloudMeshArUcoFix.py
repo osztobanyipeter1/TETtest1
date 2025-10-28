@@ -471,7 +471,7 @@ class PointCloudViewer:
 
             # Koordináta ablak frissítése (ritkábban a teljesítmény érdekében)
             current_time = time.time()
-            if current_time - last_coord_update > 0.1:  # 10 FPS
+            if current_time - last_coord_update > 0.05:  # 10 FPS
                 self.update_coordinate_window()
                 last_coord_update = current_time
 
