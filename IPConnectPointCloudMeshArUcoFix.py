@@ -16,6 +16,7 @@ class PointCloudViewer:
         # Socket szerver inicializálása
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8192) 
         self.server_socket.bind((host, port))
         self.server_socket.listen(1)
         print(f"Socket szerver indítva: {host}:{port}, várjuk a kapcsolatot...")
@@ -258,8 +259,8 @@ class PointCloudViewer:
                                 self.quaternion_y = orientation['y']
                                 self.quaternion_z = orientation['z']
                                 
-                            print(f"Frissített pozíció: [{self.camera_pos[0]:.2f}, {self.camera_pos[1]:.2f}, {self.camera_pos[2]:.2f}], "
-                                  f"Orientáció: w={orientation['w']:.2f}, x={orientation['x']:.2f}, y={orientation['y']:.2f}, z={orientation['z']:.2f}")
+                            #print(f"Frissített pozíció: [{self.camera_pos[0]:.2f}, {self.camera_pos[1]:.2f}, {self.camera_pos[2]:.2f}], "
+                            #      f"Orientáció: w={orientation['w']:.2f}, x={orientation['x']:.2f}, y={orientation['y']:.2f}, z={orientation['z']:.2f}")
                             
                         except json.JSONDecodeError as e:
                             print(f"Érvénytelen adat: {line}, Hiba: {e}")
@@ -451,6 +452,9 @@ class PointCloudViewer:
         clock = pygame.time.Clock()
         last_print_time = time.time()
         last_coord_update = time.time()
+        last_fps_time = time.time()
+        frame_count = 0
+        fps = 0
         running = True
 
         print("""
@@ -466,19 +470,26 @@ class PointCloudViewer:
 
         while running:
             delta_time = clock.tick(60) / 1000.0
+            frame_count +=1
             running = self.process_input(delta_time)
             self.render()
 
+
             # Koordináta ablak frissítése (ritkábban a teljesítmény érdekében)
             current_time = time.time()
+
+            if current_time - last_fps_time >= 1.0:
+                fps = frame_count / (current_time- last_fps_time)
+                frame_count = 0
+                last_fps_time = current_time
+
             if current_time - last_coord_update > 0.05:  # 10 FPS
                 self.update_coordinate_window()
                 last_coord_update = current_time
 
-            if current_time - last_print_time > 2.0:
+            if current_time - last_print_time > 0.5:
                 visible_points, _ = self.get_visible_points()
-                print(f"Látható pontok: {len(visible_points)}, Pozíció: [{self.camera_pos[0]:.2f}, {self.camera_pos[1]:.2f}, {self.camera_pos[2]:.2f}]")
-                last_print_time = current_time
+                print(f"\rLátható pontok: {len(visible_points):5d} | FPS: {fps:5.1f} | Pozíció: [{self.camera_pos[0]:6.2f}, {self.camera_pos[1]:6.2f}, {self.camera_pos[2]:6.2f}]", end="", flush=True)
 
         self.running = False
         self.thread.join()
