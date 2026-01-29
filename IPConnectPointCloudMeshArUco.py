@@ -321,5 +321,5 @@ class PointCloudViewer:
         pygame.quit()
 
 if __name__ == "__main__":
-    viewer = PointCloudViewer("centered_sampled2.ply", host='127.0.0.1')
+    viewer = PointCloudViewer("centered_sampled20000.ply", host='127.0.0.1')
     viewer.run()

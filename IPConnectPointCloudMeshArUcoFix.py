@@ -500,5 +500,5 @@ class PointCloudViewer:
 
 if __name__ == "__main__":
     # Scale factor: 0.5 = felére kicsinyítés, 0.25 = negyedére, stb.
-    viewer = PointCloudViewer("centered_sampled2000.ply", host='127.0.0.1', scale_factor=0.1)
+    viewer = PointCloudViewer("centered_sampled20000.ply", host='127.0.0.1', scale_factor=0.1)
     viewer.run()
