@@ -479,7 +479,7 @@ class PointCloudViewer:
                 elif event.key == pygame.K_x:
                     self.show_wireframe = not self.show_wireframe
                     print(f"Drótváz megjelenítése: {'BE' if self.show_wireframe else 'KI'}")
-                elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
+                elif event.key == pygame.K_3 or event.key == pygame.K_EQUALS:
                     self.mesh_alpha = min(1.0, self.mesh_alpha + 0.01)
                     print(f"Mesh alpha: {self.mesh_alpha:.2f}")
                     
@@ -496,7 +496,7 @@ class PointCloudViewer:
                         print(f"Egér lock: {'BE' if self.mouse_locked else 'KI'}")
                         
                 elif event.key == pygame.K_g:
-                    # ⭐ GPU/CPU renderelés mód váltása
+                    # GPU/CPU renderelés mód váltása
                     self.use_gpu_rendering = not self.use_gpu_rendering
                     render_mode = "GPU (VBO)" if self.use_gpu_rendering else "CPU (glBegin/glEnd)"
                     print(f"Renderelési mód: {render_mode}")
@@ -748,7 +748,7 @@ class PointCloudViewer:
 
         visible_points, colors = self.get_visible_points()
 
-        # ⭐ GPU vagy CPU renderelés
+        # GPU vagy CPU renderelés
         if self.use_gpu_rendering:
             self.render_points_gpu(visible_points, colors)
         else:
@@ -784,10 +784,10 @@ class PointCloudViewer:
     - SPACE, LSHIFT: Fel / Le
     - Fel/Le nyilak: Látható távolság változtatása
     - P: Egér lock/unlock (fallback módban)
-    - G: GPU/CPU renderelés mód váltása ⭐
+    - G: GPU/CPU renderelés mód váltása
     - M: Mesh láthatóság váltása
     - X: Drótváz láthatóság váltása
-    - +/-: Mesh alpha paraméter
+    - 3(+)/-: Mesh alpha paraméter
     - L: LOD faktor
     - C: Koordináta ablak update
     - F1: Frustum Culling
