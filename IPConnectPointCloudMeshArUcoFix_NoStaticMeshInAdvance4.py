@@ -46,22 +46,28 @@ class PointCloudViewer:
         
         self.running = True
 
-
-        # ============ PONTFELHŐ BETÖLTÉSE ============
-        self.pcd = o3d.io.read_point_cloud(point_cloud_file)
+        # ============ PONTFELHŐ BETÖLTÉSE CLUSTER ADATOKKAL ============
+        self.load_point_cloud_with_clusters(point_cloud_file)
         
         self.scale_point_cloud(scale_factor)
         
         self.vertices = np.asarray(self.pcd.points)
-        self.colors = np.asarray(self.pcd.colors) if self.pcd.has_colors() else np.ones_like(self.vertices) * 0.7
+        self.clusters = self.cluster_data  # Cluster értékek tárolása
+        
+        # Cluster szűrő beállítások
+        self.cluster_filter_enabled = False
+        self.selected_clusters = set()  # Kiválasztott cluster értékek
+        self.cluster_display_mode = "normal"  # "normal", "single", "multi"
+        
+        # Színek generálása a cluster értékek alapján
+        self.generate_cluster_colors()
+        
         self.mesh_alpha = 0.6
-
 
         # ============ KAMERA BEÁLLÍTÁSOK ============
         self.center = np.mean(self.vertices, axis=0)
         self.bounds_min = np.min(self.vertices, axis=0)
         self.bounds_max = np.max(self.vertices, axis=0)
-
 
         self.camera_pos = self.center + np.array([0.0, 0.0, 2.0], dtype=np.float32)
         self.camera_front = np.array([0.0, 0.0, -1.0], dtype=np.float32)
@@ -74,7 +80,6 @@ class PointCloudViewer:
         self.lod_factor = 1  # 1=full, 2=half, 4=quarter
         self.coord_window_enabled = True
 
-
         self.frustum_culling_enabled = True
         self.lod_enabled = True
         self.mesh_caching_enabled = True
@@ -84,14 +89,12 @@ class PointCloudViewer:
         # ============ GPU/CPU RENDERELÉS MÓD ============
         self.use_gpu_rendering = True  # Toggle GPU/CPU között
 
-
         # ============ MESH MEGJELENÍTÉS ============
         self.show_mesh = True
         self.show_wireframe = True
         self.current_mesh_vertices = None
         self.current_mesh_triangles = None
         self.last_visible_points_hash = None  # Hash-alapú cache
-
 
         # ============ PYGAME INICIALIZÁLÁSA ============
         pygame.init()
@@ -103,9 +106,8 @@ class PointCloudViewer:
         
         self.display = (1500, 720)
         pygame.display.set_mode(self.display, DOUBLEBUF | OPENGL)
-        pygame.display.set_caption("PointCloud Viewer - GPU/CPU Toggle Support")
+        pygame.display.set_caption("PointCloud Viewer - Cluster alapú színezés és szűrés")
         pygame.mouse.set_visible(True)
-
 
         # ============ OPENGL BEÁLLÍTÁSOK ============
         glMatrixMode(GL_PROJECTION)
@@ -113,7 +115,6 @@ class PointCloudViewer:
         glMatrixMode(GL_MODELVIEW)
         glEnable(GL_DEPTH_TEST)
         glPointSize(self.point_size)
-
 
         # ============ VBO INICIALIZÁLÁSA (OpenGL context után) ============
         self.vbo_initialized = False
@@ -123,7 +124,6 @@ class PointCloudViewer:
             print(f"VBO inicializálási hiba: {e}")
             self.vbo_initialized = False
 
-
         # ============ QUATERNION (TCP módhoz) ============
         if self.socket_connected:
             self.quaternion_w = 1.0
@@ -131,12 +131,143 @@ class PointCloudViewer:
             self.quaternion_y = 0.0
             self.quaternion_z = 0.0
 
-
         # ============ KOORDINÁTA ABLAK ============
         self.setup_coordinate_window()
-
-
-
+        
+        # Cluster információk kiírása
+        self.print_cluster_info()
+        
+    def print_cluster_info(self):
+        """Cluster információk kiírása"""
+        unique_clusters = np.unique(self.clusters)
+        cluster_counts = {}
+        for cluster in unique_clusters:
+            cluster_counts[cluster] = np.sum(self.clusters == cluster)
+        
+        print(f"\n{'='*60}")
+        print(f"CLUSTER STATISZTIKA")
+        print(f"{'='*60}")
+        print(f"Összes pont: {len(self.vertices)}")
+        print(f"Egyedi clusterek száma: {len(unique_clusters)}")
+        print(f"\nCluster eloszlás:")
+        print(f"{'Cluster':<10} {'Darab':<10} {'Arány':<10}")
+        print(f"{'-'*30}")
+        
+        for cluster in sorted(unique_clusters):
+            count = cluster_counts[cluster]
+            percentage = (count / len(self.vertices)) * 100
+            print(f"{int(cluster):<10} {count:<10} {percentage:.2f}%")
+        
+        print(f"\nCluster értékek listája: {sorted(unique_clusters)}")
+        print(f"{'='*60}\n")
+        
+        # Használati útmutató cluster szűréshez
+        print("CLUSTER SZŰRÉS PARANCSOK:")
+        print("  [1] - [9]: Cluster hozzáadása a szűrőhöz (0-9 közötti értékek)")
+        print("  F6: Cluster szűrő be/ki")
+        print("  F7: Összes cluster mutatása")
+        print("  F8: Egyedi cluster mód (csak a kiválasztott)")
+        print("  F9: Több cluster mód (kiválasztottak)")
+        print("  F10: Szűrő törlése")
+        print("  Jelenlegi kiválasztott clusterek: -\n")
+    
+    def load_point_cloud_with_clusters(self, filename):
+        """PLY fájl betöltése cluster adatokkal (4 oszlop)"""
+        try:
+            # PLY fájl beolvasása szövegként
+            with open(filename, 'r') as f:
+                lines = f.readlines()
+            
+            # Fejléc feldolgozása
+            header_end = 0
+            points_start = 0
+            for i, line in enumerate(lines):
+                if line.strip() == "end_header":
+                    header_end = i
+                    points_start = i + 1
+                    break
+            
+            # Pontok beolvasása
+            points = []
+            clusters = []
+            
+            for line in lines[points_start:]:
+                if line.strip():
+                    values = line.strip().split()
+                    if len(values) >= 4:
+                        x, y, z, cluster = map(float, values[:4])
+                        points.append([x, y, z])
+                        clusters.append(int(cluster))  # cluster érték tárolása
+            
+            points = np.array(points, dtype=np.float64)
+            clusters = np.array(clusters, dtype=np.int32)
+            
+            # Open3D pontfelhő létrehozása
+            self.pcd = o3d.geometry.PointCloud()
+            self.pcd.points = o3d.utility.Vector3dVector(points)
+            
+            # Cluster adatok tárolása
+            self.cluster_data = clusters
+            
+            print(f"Betöltve: {len(points)} pont, {len(np.unique(clusters))} különböző cluster")
+            
+        except Exception as e:
+            print(f"Hiba a PLY fájl betöltésekor: {e}")
+            # Fallback: üres pontfelhő
+            self.pcd = o3d.geometry.PointCloud()
+            self.cluster_data = np.array([])
+    
+    def generate_cluster_colors(self):
+        """Színek generálása a cluster értékek alapján"""
+        if len(self.cluster_data) == 0:
+            self.colors = np.ones_like(self.vertices) * 0.7
+            return
+        
+        # Egyedi clusterek
+        self.unique_clusters = np.unique(self.cluster_data)
+        
+        # Előre definiált színpaletta (könnyen megkülönböztethető színek)
+        self.color_palette = [
+            [0.0, 0.0, 1.0],  # kék (16-os cluster)
+            [1.0, 1.0, 0.0],  # sárga (17-es cluster)
+            [1.0, 0.0, 0.0],  # piros
+            [0.0, 1.0, 0.0],  # zöld
+            [1.0, 0.0, 1.0],  # magenta
+            [0.0, 1.0, 1.0],  # cián
+            [1.0, 0.5, 0.0],  # narancs
+            [0.5, 0.0, 1.0],  # lila
+            [0.5, 0.5, 0.5],  # szürke
+            [1.0, 0.5, 0.5],  # világospiros
+            [0.5, 1.0, 0.5],  # világoszöld
+            [0.5, 0.5, 1.0],  # világoskék
+        ]
+        
+        # Színek hozzárendelése clusterekhez
+        self.cluster_to_color = {}
+        for i, cluster_id in enumerate(sorted(self.unique_clusters)):
+            color_idx = i % len(self.color_palette)
+            self.cluster_to_color[cluster_id] = self.color_palette[color_idx]
+            print(f"  Cluster {int(cluster_id)} -> RGB{self.color_palette[color_idx]}")
+        
+        # Színek generálása minden ponthoz
+        self.colors = np.zeros((len(self.vertices), 3))
+        for i, cluster in enumerate(self.cluster_data):
+            self.colors[i] = self.cluster_to_color[cluster]
+    
+    def apply_cluster_filter(self, vertices, clusters, colors):
+        """Cluster szűrő alkalmazása a pontokra"""
+        if not self.cluster_filter_enabled or len(self.selected_clusters) == 0:
+            return vertices, clusters, colors
+        
+        if self.cluster_display_mode == "single":
+            # Csak egy cluster mutatása
+            mask = np.isin(clusters, list(self.selected_clusters))
+        else:  # "multi" mód
+            # Több cluster mutatása
+            mask = np.isin(clusters, list(self.selected_clusters))
+        
+        return vertices[mask], clusters[mask], colors[mask]
+    
     def setup_vbo(self):
         """VBO (Vertex Buffer Object) inicializálása - GPU memória optimalizálás"""
         if not self.vertices.size > 0:
@@ -182,9 +313,6 @@ class PointCloudViewer:
             self.vbo_initialized = False
             raise
 
-
-
-
     def setup_socket_with_timeout(self, host, port, timeout=5.0):
         """
         Socket szerver inicializálása timeout-tal.
@@ -219,14 +347,12 @@ class PointCloudViewer:
             print(f"Socket inicializálási hiba: {e} - fallback módra váltás")
             self.socket_connected = False
 
-
     def scale_point_cloud(self, scale_factor):
         """Pontfelhő méretezése kisebbre"""
-        
         points = np.asarray(self.pcd.points)
         scaled_points = points * scale_factor
         self.pcd.points = o3d.utility.Vector3dVector(scaled_points)
-
+        self.vertices = scaled_points
 
     def setup_coordinate_window(self):
         """Koordináta-rendszer ablak beállítása"""
@@ -245,13 +371,14 @@ class PointCloudViewer:
         self.coord_ax.set_ylim([self.bounds_min[1] - margin, self.bounds_max[1] + margin])
         self.coord_ax.set_zlim([self.bounds_min[2] - margin, self.bounds_max[2] + margin])
         
+        # Pontfelhő megjelenítése cluster színekkel a koordináta ablakban
+        colors_display = self.colors[::10] if len(self.colors) > 10 else self.colors
         self.coord_ax.scatter(self.vertices[::10, 0], self.vertices[::10, 1], self.vertices[::10, 2], 
-                             c='lightgray', s=1, alpha=0.3, label='Pontfelhő')
+                             c=colors_display, s=1, alpha=0.3, label='Pontfelhő')
         
         self.coord_ax.legend()
         plt.tight_layout()
         plt.draw()
-
 
     def update_coordinate_window(self):
         """Koordináta-rendszer ablak frissítése"""
@@ -260,8 +387,16 @@ class PointCloudViewer:
             
         self.coord_ax.clear()
         
-        self.coord_ax.scatter(self.vertices[::10, 0], self.vertices[::10, 1], self.vertices[::10, 2], 
-                             c='lightgray', s=1, alpha=0.3, label='Pontfelhő')
+        # Cluster szűrő alkalmazása a koordináta ablakban is
+        filtered_vertices, filtered_clusters, filtered_colors = self.apply_cluster_filter(
+            self.vertices, self.clusters, self.colors
+        )
+        
+        # Pontfelhő megjelenítése cluster színekkel
+        step = max(1, len(filtered_vertices) // 1000)  # Max 1000 pont a teljesítményért
+        colors_display = filtered_colors[::step] if len(filtered_colors) > step else filtered_colors
+        self.coord_ax.scatter(filtered_vertices[::step, 0], filtered_vertices[::step, 1], filtered_vertices[::step, 2], 
+                             c=colors_display, s=1, alpha=0.3, label='Pontfelhő')
         
         self.coord_ax.scatter([self.camera_pos[0]], [self.camera_pos[1]], [self.camera_pos[2]], 
                              c='red', s=100, label='Kamera')
@@ -289,25 +424,28 @@ class PointCloudViewer:
         
         pos_info = f'Pozíció: ({self.camera_pos[0]:.2f}, {self.camera_pos[1]:.2f}, {self.camera_pos[2]:.2f})'
         mode_info = f"Mód: {'TCP' if self.socket_connected else 'FALLBACK'}"
-        self.coord_ax.set_title(f'Kamera Pozíció\n{pos_info} | {mode_info}')
+        cluster_info = f"Clusterek: {len(np.unique(self.clusters))}"
+        filter_info = f"Szűrő: {'BE' if self.cluster_filter_enabled else 'KI'} ({self.cluster_display_mode})"
+        selected_info = f"Kiválasztva: {sorted(self.selected_clusters) if self.selected_clusters else '-'}"
+        
+        self.coord_ax.set_title(f'Kamera Pozíció\n{pos_info} | {mode_info} | {cluster_info}\n{filter_info} | {selected_info}')
         
         self.coord_ax.legend()
         plt.tight_layout()
         plt.draw()
         plt.pause(0.01)
 
-
-    def generate_mesh_from_visible_points(self, visible_points):
-        """On-demand mesh generálása a látható pontokból (hash-alapú cache-vel)"""
+    def generate_mesh_from_visible_points(self, visible_points, visible_clusters):
+        """On-demand mesh generálása a látható pontokból cluster színezéssel"""
         if len(visible_points) < 10:  # Minimum 10 pont
-            return None, None
+            return None, None, None
         
         try:
             # Hash-alapú cache ellenőrzése
             current_hash = hash(visible_points.tobytes())
-            if current_hash == self.last_visible_points_hash:
+            if current_hash == self.last_visible_points_hash and self.mesh_caching_enabled:
                 # Ugyanazok a pontok, mesh nem változott
-                return self.current_mesh_vertices, self.current_mesh_triangles
+                return self.current_mesh_vertices, self.current_mesh_triangles, self.current_mesh_clusters
             
             visible_pcd = o3d.geometry.PointCloud()
             visible_pcd.points = o3d.utility.Vector3dVector(visible_points)
@@ -325,7 +463,7 @@ class PointCloudViewer:
                 )
             
             if len(mesh.vertices) == 0:
-                return None, None
+                return None, None, None
             
             # Mesh optimalizálása
             mesh.remove_duplicated_vertices()
@@ -339,14 +477,20 @@ class PointCloudViewer:
             vertices = np.asarray(mesh.vertices)
             triangles = np.asarray(mesh.triangles)
             
+            # Cluster értékek hozzárendelése a mesh vertexekhez (legközelebbi pont alapján)
+            from scipy.spatial import KDTree
+            tree = KDTree(visible_points)
+            distances, indices = tree.query(vertices)
+            mesh_clusters = visible_clusters[indices]
+            
             # Cache frissítése
             self.last_visible_points_hash = current_hash
+            self.current_mesh_clusters = mesh_clusters
             
-            return vertices, triangles
+            return vertices, triangles, mesh_clusters
             
         except Exception as e:
-            return None, None
-
+            return None, None, None
 
     def receive_data(self):
         """TCP socketből adatok fogadása (csak TCP módban)"""
@@ -388,9 +532,6 @@ class PointCloudViewer:
                 print(f"Socket hiba: {e}")
                 break
 
-
-
-
     def update_camera_orientation(self):
         """Kamera orientáció frissítése (TCP módban)"""
         if not self.socket_connected:
@@ -423,7 +564,6 @@ class PointCloudViewer:
             
             self.camera_front /= np.linalg.norm(self.camera_front)
             self.camera_up /= np.linalg.norm(self.camera_up)
-
 
     def update_camera_orientation_fallback(self):
         """Kamera orientáció frissítése fallback módban (FPS-szerű egér kezelés)"""
@@ -460,12 +600,10 @@ class PointCloudViewer:
         self.camera_up = np.cross(right, self.camera_front)
         self.camera_up /= np.linalg.norm(self.camera_up)
 
-
     def process_input(self, delta_time):
         """Bemenet kezelése (billentyűzet + egér)"""
         running = True
         move_direction = np.zeros(3, dtype=np.float32)
-
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -541,8 +679,86 @@ class PointCloudViewer:
                     else:
                         glDisable(GL_CULL_FACE)
                     print(f"Back-Face Culling: {'BE' if self.backface_culling_enabled else 'KI'}")
-
-
+                    
+                # ============ CLUSTER SZŰRÉS PARANCSOK ============
+                elif event.key == pygame.K_F6:
+                    # Cluster szűrő be/ki
+                    self.cluster_filter_enabled = not self.cluster_filter_enabled
+                    status = "BE" if self.cluster_filter_enabled else "KI"
+                    print(f"Cluster szűrő: {status}")
+                    
+                elif event.key == pygame.K_F7:
+                    # Összes cluster mutatása (szűrő kikapcsolása)
+                    self.cluster_filter_enabled = False
+                    self.selected_clusters = set()
+                    self.cluster_display_mode = "normal"
+                    print("Összes cluster megjelenítése")
+                    
+                elif event.key == pygame.K_F8:
+                    # Egyedi cluster mód
+                    if len(self.selected_clusters) > 0:
+                        self.cluster_filter_enabled = True
+                        self.cluster_display_mode = "single"
+                        print(f"Egyedi cluster mód - kiválasztva: {sorted(self.selected_clusters)}")
+                    else:
+                        print("Nincs kiválasztva cluster! Először válassz ki egyet (1-9)")
+                        
+                elif event.key == pygame.K_F9:
+                    # Több cluster mód
+                    if len(self.selected_clusters) > 0:
+                        self.cluster_filter_enabled = True
+                        self.cluster_display_mode = "multi"
+                        print(f"Több cluster mód - kiválasztva: {sorted(self.selected_clusters)}")
+                    else:
+                        print("Nincs kiválasztva cluster! Először válassz ki egyet (1-9)")
+                        
+                elif event.key == pygame.K_F10:
+                    # Szűrő törlése
+                    self.cluster_filter_enabled = False
+                    self.selected_clusters = set()
+                    self.cluster_display_mode = "normal"
+                    print("Szűrő törölve - minden cluster megjelenik")
+                    
+                # Számbillentyűk 1-9 a cluster kiválasztásához
+                elif event.key >= pygame.K_0 and event.key <= pygame.K_9:
+                    # Szám felismerése
+                    num = event.key - pygame.K_0
+                    
+                    # Megnézzük, hogy van-e ilyen cluster
+                    if num in self.unique_clusters:
+                        if num in self.selected_clusters:
+                            self.selected_clusters.remove(num)
+                            print(f"Cluster {num} eltávolítva a kiválasztásból")
+                        else:
+                            self.selected_clusters.add(num)
+                            print(f"Cluster {num} hozzáadva a kiválasztáshoz")
+                        
+                        print(f"Jelenlegi kiválasztott clusterek: {sorted(self.selected_clusters)}")
+                    else:
+                        print(f"Nincs {num} értékű cluster az adatokban!")
+                        
+                # Kétjegyű számok kezelése (10 feletti cluster értékek)
+                elif event.key == pygame.K_1 and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                    # Ctrl+1 pl. 10-es cluster
+                    self.try_add_cluster(10)
+                elif event.key == pygame.K_2 and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                    self.try_add_cluster(11)
+                elif event.key == pygame.K_3 and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                    self.try_add_cluster(12)
+                elif event.key == pygame.K_4 and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                    self.try_add_cluster(13)
+                elif event.key == pygame.K_5 and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                    self.try_add_cluster(14)
+                elif event.key == pygame.K_6 and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                    self.try_add_cluster(15)
+                elif event.key == pygame.K_7 and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                    self.try_add_cluster(16)
+                elif event.key == pygame.K_8 and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                    self.try_add_cluster(17)
+                elif event.key == pygame.K_9 and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                    self.try_add_cluster(18)
+                elif event.key == pygame.K_0 and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                    self.try_add_cluster(19)
 
         keys = pygame.key.get_pressed()
         if keys[pygame.K_w]:
@@ -560,23 +776,32 @@ class PointCloudViewer:
         if keys[pygame.K_LSHIFT]:
             move_direction -= self.camera_up
 
-
         if keys[pygame.K_UP]:
             self.max_distance += 0.1
         if keys[pygame.K_DOWN]:
             self.max_distance = max(0.1, self.max_distance - 0.1)
 
-
         if np.linalg.norm(move_direction) > 0:
             move_direction /= np.linalg.norm(move_direction)
             self.camera_pos += move_direction * self.movement_speed * delta_time
 
-
         return running
-
+    
+    def try_add_cluster(self, cluster_value):
+        """Segédfüggvény cluster érték hozzáadásához"""
+        if cluster_value in self.unique_clusters:
+            if cluster_value in self.selected_clusters:
+                self.selected_clusters.remove(cluster_value)
+                print(f"Cluster {cluster_value} eltávolítva a kiválasztásból")
+            else:
+                self.selected_clusters.add(cluster_value)
+                print(f"Cluster {cluster_value} hozzáadva a kiválasztáshoz")
+            print(f"Jelenlegi kiválasztott clusterek: {sorted(self.selected_clusters)}")
+        else:
+            print(f"Nincs {cluster_value} értékű cluster az adatokban!")
 
     def get_visible_points(self):
-        """Látható pontok szűrése + LOD + Frustum Culling"""
+        """Látható pontok szűrése + LOD + Frustum Culling + Cluster szűrő"""
         
         # FRUSTUM CULLING
         if self.frustum_culling_enabled:
@@ -593,47 +818,44 @@ class PointCloudViewer:
         
         # LOD ALKALMAZÁSA
         visible_vertices = self.vertices[mask]
+        visible_clusters = self.clusters[mask]
         visible_colors = self.colors[mask]
         
         if self.lod_enabled and self.lod_factor > 1:
             visible_vertices = visible_vertices[::self.lod_factor]
+            visible_clusters = visible_clusters[::self.lod_factor]
             visible_colors = visible_colors[::self.lod_factor]
         
-        return visible_vertices, visible_colors
-
+        # CLUSTER SZŰRŐ ALKALMAZÁSA
+        visible_vertices, visible_clusters, visible_colors = self.apply_cluster_filter(
+            visible_vertices, visible_clusters, visible_colors
+        )
+        
+        return visible_vertices, visible_clusters, visible_colors
 
     def render_mesh(self):
-        """Dinamikus szín mesh renderelése (CPU módban)"""
+        """Dinamikus szín mesh renderelése cluster színekkel"""
         if not self.show_mesh or self.current_mesh_vertices is None or self.current_mesh_triangles is None:
             return
 
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         
-        # Felület renderelése dinamikus szín gradienssel
+        # Felület renderelése cluster színekkel
         glBegin(GL_TRIANGLES)
         for tri in self.current_mesh_triangles:
             for idx in tri:
-                if idx < len(self.current_mesh_vertices):
+                if idx < len(self.current_mesh_vertices) and hasattr(self, 'current_mesh_clusters') and idx < len(self.current_mesh_clusters):
                     vertex = self.current_mesh_vertices[idx]
+                    cluster = self.current_mesh_clusters[idx]
                     
-                    # Távolság alapú szín számítás
-                    distance = np.linalg.norm(vertex - self.camera_pos)
-                    t = min(distance / self.max_distance, 1.0)
-                    
-                    # Szín interpoláció (cián -> magenta)
-                    if t < 0.5:
-                        t2 = t * 2
-                        r = t2
-                        g = 1.0 - t2
-                        b = 1.0
+                    # Cluster színének lekérése
+                    if cluster in self.cluster_to_color:
+                        color = self.cluster_to_color[cluster]
                     else:
-                        t2 = (t - 0.5) * 2
-                        r = 1.0
-                        g = 1.0 - t2
-                        b = 1.0 - t2
+                        color = [0.7, 0.7, 0.7]  # alapértelmezett szürke
                     
-                    glColor4f(r, g, b, 1.0)
+                    glColor4f(color[0], color[1], color[2], 1.0)
                     glVertex3fv(vertex)
         glEnd()
         
@@ -650,34 +872,14 @@ class PointCloudViewer:
         
         glDisable(GL_BLEND)
 
-
     def render_points_gpu(self, visible_points, visible_colors):
         """GPU renderelés VBO-val"""
         if not self.vbo_initialized or len(visible_points) == 0:
             return
         
-        # Módosított pont szín számítás
-        distances = np.linalg.norm(visible_points - self.camera_pos, axis=1)
-        t = np.minimum(distances / self.max_distance, 1.0)
-        
-        colors_render = np.zeros_like(visible_points)
-        mask1 = t < 0.5
-        if np.any(mask1):
-            t2 = t[mask1] * 2
-            colors_render[mask1, 0] = t2
-            colors_render[mask1, 1] = 1.0 - t2
-            colors_render[mask1, 2] = 1.0
-        
-        mask2 = t >= 0.5
-        if np.any(mask2):
-            t2 = (t[mask2] - 0.5) * 2
-            colors_render[mask2, 0] = 1.0
-            colors_render[mask2, 1] = 1.0 - t2
-            colors_render[mask2, 2] = 1.0 - t2
-        
         # VBO frissítés csak a látható pontokkal
         visible_vertices = visible_points.astype(np.float32)
-        visible_colors = colors_render.astype(np.float32)
+        visible_colors = visible_colors.astype(np.float32)
         
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo_positions)
         glBufferSubData(GL_ARRAY_BUFFER, 0, visible_vertices.nbytes, visible_vertices)
@@ -689,30 +891,10 @@ class PointCloudViewer:
         glDrawArrays(GL_POINTS, 0, len(visible_vertices))
         glBindVertexArray(0)
 
-
     def render_points_cpu(self, visible_points, visible_colors):
         """CPU renderelés glBegin/glEnd-vel"""
         if len(visible_points) == 0:
             return
-        
-        # Szín számítás
-        distances = np.linalg.norm(visible_points - self.camera_pos, axis=1)
-        t = np.minimum(distances / self.max_distance, 1.0)
-        
-        colors_render = np.zeros_like(visible_points)
-        mask1 = t < 0.5
-        if np.any(mask1):
-            t2 = t[mask1] * 2
-            colors_render[mask1, 0] = t2
-            colors_render[mask1, 1] = 1.0 - t2
-            colors_render[mask1, 2] = 1.0
-        
-        mask2 = t >= 0.5
-        if np.any(mask2):
-            t2 = (t[mask2] - 0.5) * 2
-            colors_render[mask2, 0] = 1.0
-            colors_render[mask2, 1] = 1.0 - t2
-            colors_render[mask2, 2] = 1.0 - t2
         
         # CPU renderelés
         glBegin(GL_POINTS)
@@ -723,13 +905,12 @@ class PointCloudViewer:
                 size = max(1.0, 3.0 * (1.0 - min(dist / self.max_distance, 1.0)))
                 glPointSize(size)
             
-            glColor3f(colors_render[i, 0], colors_render[i, 1], colors_render[i, 2])
+            glColor3f(visible_colors[i, 0], visible_colors[i, 1], visible_colors[i, 2])
             glVertex3fv(point)
         glEnd()
         
         # Reset point size
         glPointSize(self.point_size)
-
 
     def render(self):
         """Renderelési loop"""
@@ -746,23 +927,23 @@ class PointCloudViewer:
         cam_target = self.camera_pos + self.camera_front
         gluLookAt(*self.camera_pos, *cam_target, *self.camera_up)
 
-        visible_points, colors = self.get_visible_points()
+        visible_points, visible_clusters, visible_colors = self.get_visible_points()
 
         # GPU vagy CPU renderelés
         if self.use_gpu_rendering:
-            self.render_points_gpu(visible_points, colors)
+            self.render_points_gpu(visible_points, visible_colors)
         else:
-            self.render_points_cpu(visible_points, colors)
+            self.render_points_cpu(visible_points, visible_colors)
 
         # Mesh renderelés
         if self.show_mesh and len(visible_points) > 0:
-            mesh_vertices, mesh_triangles = self.generate_mesh_from_visible_points(visible_points)
+            mesh_vertices, mesh_triangles, mesh_clusters = self.generate_mesh_from_visible_points(visible_points, visible_clusters)
             self.current_mesh_vertices = mesh_vertices
             self.current_mesh_triangles = mesh_triangles
+            self.current_mesh_clusters = mesh_clusters
             self.render_mesh()
 
         pygame.display.flip()
-
 
     def run(self):
         """Főciklus"""
@@ -795,6 +976,15 @@ class PointCloudViewer:
     - F3: Mesh Caching
     - F4: Point Size LOD
     - F5: Back-Face Culling
+    
+    CLUSTER SZŰRÉS:
+    - 1-9: Cluster hozzáadása/eltávolítása (0-9 értékek)
+    - Ctrl+1..Ctrl+0: 10-19 közötti cluster értékek
+    - F6: Cluster szűrő be/ki
+    - F7: Összes cluster mutatása
+    - F8: Egyedi cluster mód (csak a kiválasztott)
+    - F9: Több cluster mód (kiválasztottak)
+    - F10: Szűrő törlése
         """)
         
         while running:
@@ -815,10 +1005,14 @@ class PointCloudViewer:
                 last_coord_update = current_time
 
             if current_time - last_print_time > 0.5:
-                visible_points, _ = self.get_visible_points()
-                mode_char = "TCP" if self.socket_connected else "FB"
+                visible_points, visible_clusters, _ = self.get_visible_points()
                 render_mode = "GPU" if self.use_gpu_rendering else "CPU"
-                print(f"\rLátható: {len(visible_points):5d} | FPS: {fps:.2f} | Alpha: {self.mesh_alpha:.2f} | Render: {render_mode} | Pos: [{self.camera_pos[0]:6.2f}, {self.camera_pos[1]:6.2f}, {self.camera_pos[2]:6.2f}]", end="", flush=True)
+                unique_visible_clusters = len(np.unique(visible_clusters)) if len(visible_clusters) > 0 else 0
+                
+                filter_status = "BE" if self.cluster_filter_enabled else "KI"
+                selected = f"Kiválasztva: {sorted(self.selected_clusters) if self.selected_clusters else '-'}"
+                
+                print(f"\rLátható: {len(visible_points):5d} | Clusterek: {unique_visible_clusters:3d} | FPS: {fps:.2f} | Alpha: {self.mesh_alpha:.2f} | Render: {render_mode} | Szűrő: {filter_status} {selected}", end="", flush=True)
                 last_print_time = current_time
 
         self.running = False
@@ -833,5 +1027,5 @@ class PointCloudViewer:
 
 
 if __name__ == "__main__":
-    viewer = PointCloudViewer("pcexample20000.ply", host='127.0.0.1', scale_factor=0.1)
+    viewer = PointCloudViewer("pcexample.ply", host='127.0.0.1', scale_factor=0.1)
     viewer.run()

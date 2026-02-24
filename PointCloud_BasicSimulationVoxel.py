@@ -6,19 +6,41 @@ from pygame.locals import *
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
-class PointCloudViewer:
-    def __init__(self, point_cloud_file):
 
+class PointCloudViewer:
+    def __init__(self, point_cloud_file, voxel_size=0.1):
         self.pcd = o3d.io.read_point_cloud(point_cloud_file)
-        self.vertices = np.asarray(self.pcd.points)
-        self.colors = np.asarray(self.pcd.colors) if self.pcd.has_colors() else np.ones_like(self.vertices) * 0.7
+        self.voxel_size = voxel_size
+
+        # Voxel grid preprocessing - csak a foglalt voxelok középpontjai
+        print("Voxel grid létrehozása...")
+        voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(self.pcd, voxel_size=voxel_size)
+        voxels = voxel_grid.get_voxels()
+        print(f"Foglalt voxelok száma: {len(voxels)}")
+
+        self.voxel_centers = []
+        self.voxel_colors = []
+        for vox in voxels:
+            center = voxel_grid.get_voxel_center_coordinate(vox.grid_index)
+            self.voxel_centers.append(center)
+        
+        self.vertices = np.asarray(self.voxel_centers)
+        self.colors = np.ones_like(self.vertices) * 0.7  # Alap szín, ha nincs szín
+
+        # Színek átlagolása opcionálisan (ha van szín a pcd-ben)
+        if self.pcd.has_colors():
+            voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(self.pcd, voxel_size=voxel_size)
+            # Egyszerűbb: voxel downsample-t használjuk színre
+            down_pcd = self.pcd.voxel_down_sample(voxel_size=voxel_size)
+            self.colors = np.asarray(down_pcd.colors)
 
         self.center = np.mean(self.vertices, axis=0)
         self.bounds_min = np.min(self.vertices, axis=0)
         self.bounds_max = np.max(self.vertices, axis=0)
 
-        print(f"Pontfelhő középpontja: {self.center}")
+        print(f"Voxelizált pontfelhő középpontja: {self.center}")
         print(f"Kiterjedése: min={self.bounds_min}, max={self.bounds_max}")
+        print(f"Pontok száma voxel downsample után: {len(self.vertices)}")
 
         self.camera_pos = self.center + np.array([0.0, 0.0, 5.0], dtype=np.float32)
         self.camera_front = (self.center - self.camera_pos)
@@ -29,7 +51,7 @@ class PointCloudViewer:
 
         self.max_distance = 20.0
         self.fov_cos = np.cos(np.radians(45))
-        self.point_size = 3.0
+        self.point_size = 5.0  # Nagyobb pontméret voxel pontokhoz
         self.movement_speed = 1.0
         self.mouse_sensitivity = 0.1
 
@@ -65,6 +87,9 @@ class PointCloudViewer:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     return False
+                elif event.key == pygame.K_r:
+                    # Újratöltés nagyobb voxel_size-szal teszteléshez
+                    return 'reload'
 
         keys = pygame.key.get_pressed()
         if keys[pygame.K_w]:
@@ -119,13 +144,14 @@ class PointCloudViewer:
         cam_target = self.camera_pos + self.camera_front
         gluLookAt(*self.camera_pos, *cam_target, *self.camera_up)
 
-        visible_points, _ = self.get_visible_points()
+        visible_points, visible_colors = self.get_visible_points()
 
         glBegin(GL_POINTS)
-        for point in visible_points:
+        for i, point in enumerate(visible_points):
             distance = np.linalg.norm(point - self.camera_pos)
             t = min(distance / self.max_distance, 1.0)
 
+            # Távolság alapú színátmenet (zöld-sárga-piros)
             if t < 0.5:
                 r = 1.0 - 2 * t
                 g = 2 * t
@@ -136,12 +162,17 @@ class PointCloudViewer:
                 g = 1.0 - t2
                 b = t2
 
-            glColor3f(r, g, b)
+            # Ha van voxel szín, azt használd, különben távolság színt
+            if hasattr(self, 'colors') and len(visible_colors) > i:
+                col = visible_colors[i]
+                glColor3f(col[0], col[1], col[2])
+            else:
+                glColor3f(r, g, b)
+            
             glVertex3fv(point)
         glEnd()
 
         pygame.display.flip()
-
 
     def run(self):
         clock = pygame.time.Clock()
@@ -152,17 +183,24 @@ class PointCloudViewer:
         while running:
             delta_time = clock.tick(60) / 1000.0
             self.fps = clock.get_fps()
-            running = self.process_input(delta_time)
+            
+            input_result = self.process_input(delta_time)
+            if input_result == False:
+                break
+            elif input_result == 'reload':
+                break
+                
             self.render()
 
             if time.time() - last_print_time > 0.5:
                 visible_points, _ = self.get_visible_points()
-                print(f"Látható pontok: {len(visible_points)}, FPS: {int(self.fps)}, Pozíció: {self.camera_pos}")
+                print(f"Látható voxel pontok: {len(visible_points)}, FPS: {int(self.fps)}, Pozíció: {self.camera_pos}")
                 last_print_time = time.time()
 
         pygame.mouse.set_visible(True)
         pygame.event.set_grab(False)
         pygame.quit()
+
 
 if __name__ == "__main__":
     print("""
@@ -171,7 +209,10 @@ if __name__ == "__main__":
     - SPACE, LSHIFT: Fel / Le
     - Egér: Kamera forgatás
     - NYILAK FEL/LE: max_distance növelése/csökkentése
+    - R: Újratöltés (különböző voxel_size-szal teszteléshez)
     - ESC: Kilépés
+    
+    Megjegyzés: voxel_size=0.1 a __init__-ben állítható!
     """)
-    viewer = PointCloudViewer("newship20000.ply")
+    viewer = PointCloudViewer("centered.ply", voxel_size=0.2)  # Itt állítsd a kívánt voxel méretet
     viewer.run()

@@ -6,17 +6,40 @@ from pygame.locals import *
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
+
 class PointCloudViewer:
-    def __init__(self, point_cloud_file):
+    def __init__(self, point_cloud_file, voxel_size=0.05):
         self.pcd = o3d.io.read_point_cloud(point_cloud_file)
-        self.vertices = np.asarray(self.pcd.points)
-        self.colors = np.asarray(self.pcd.colors) if self.pcd.has_colors() else np.ones_like(self.vertices) * 0.7
+        self.voxel_size = voxel_size
+        
+        # VOXEL GRID PREPROCESSING - CSAK FOGLALT VOXEL KÖZÉPPONTJAI
+        print("Voxel grid létrehozása...")
+        voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(self.pcd, voxel_size=voxel_size)
+        voxels = voxel_grid.get_voxels()
+        print(f"Foglalt voxelok száma: {len(voxels)}")
+
+        self.voxel_centers = []
+        self.voxel_colors = []
+        for vox in voxels:
+            center = voxel_grid.get_voxel_center_coordinate(vox.grid_index)
+            self.voxel_centers.append(center)
+        
+        self.vertices = np.asarray(self.voxel_centers)
+        
+        # Színek: ha van szín a PLY-ben, akkor voxel downsample-ból
+        if self.pcd.has_colors():
+            down_pcd = self.pcd.voxel_down_sample(voxel_size=voxel_size)
+            self.colors = np.asarray(down_pcd.colors)
+        else:
+            self.colors = np.ones_like(self.vertices) * 0.7
+        
         self.center = np.mean(self.vertices, axis=0)
         self.bounds_min = np.min(self.vertices, axis=0)
         self.bounds_max = np.max(self.vertices, axis=0)
 
-        print(f"Pontfelhő középpontja: {self.center}")
-        print(f"Kiterjedése: min={self.bounds_min}, max={self.bounds_max}")
+        print(f"Voxelizált pontfelhő: {len(self.vertices)} pont")
+        print(f"Középpont: {self.center}")
+        print(f"Kiterjedés: min={self.bounds_min}, max={self.bounds_max}")
 
         # Kamera
         self.camera_pos = self.center + np.array([0.0, 0.0, 5.0], dtype=np.float32)
@@ -26,13 +49,13 @@ class PointCloudViewer:
         self.yaw = -90.0
         self.pitch = 0.0
 
-        self.max_distance = 8.0
+        self.max_distance = 20.0
         self.fov_cos = np.cos(np.radians(60))
-        self.point_size = 3.0
+        self.point_size = 4.0  # Nagyobb voxel pontokhoz
         self.movement_speed = 1.0
         self.mouse_sensitivity = 0.1
 
-        self.alpha_value = 0.6
+        self.alpha_value = 0.5
         self.last_visible_hash = None
         self.mesh_triangles = None
         self.mesh_vertices = None
@@ -49,7 +72,7 @@ class PointCloudViewer:
         glEnable(GL_DEPTH_TEST)
         glPointSize(self.point_size)
 
-        pygame.mouse.get_rel() # reset mouse position
+        pygame.mouse.get_rel()
 
     def update_camera_vectors(self):
         front = np.array([
@@ -69,6 +92,8 @@ class PointCloudViewer:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     return False
+                elif event.key == pygame.K_r:
+                    return 'reload'  # Újratöltés különböző voxel_size-szal
 
         keys = pygame.key.get_pressed()
         if keys[pygame.K_w]:
@@ -128,6 +153,7 @@ class PointCloudViewer:
 
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(points)
+        pcd.colors = o3d.utility.Vector3dVector(self.colors[:len(points)])  # Voxel színek hozzáadása
         try:
             mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
             mesh.remove_duplicated_vertices()
@@ -151,35 +177,44 @@ class PointCloudViewer:
         cam_target = self.camera_pos + self.camera_front
         gluLookAt(*self.camera_pos, *cam_target, *self.camera_up)
 
-        visible_points, _ = self.get_visible_points()
+        visible_points, visible_colors = self.get_visible_points()
 
         current_hash = hash(visible_points.tobytes())
         if current_hash != self.last_visible_hash:
             self.generate_alpha_mesh(visible_points)
             self.last_visible_hash = current_hash
 
-        # Pontok kirajzolása
+        # VOXEL PONTok kirajzolása (voxel színekkel)
         glBegin(GL_POINTS)
-        for point in visible_points:
+        for i, point in enumerate(visible_points):
             distance = np.linalg.norm(point - self.camera_pos)
             t = min(distance / self.max_distance, 1.0)
 
-            if t < 0.5:
-                t2 = t * 2
-                r = t2
-                g = 1.0 - t2
-                b = 1.0
+            # Voxel szín használata távolság helyett
+            if len(visible_colors) > i:
+                col = visible_colors[i]
+                # Távolság moduláció
+                r, g, b = col[0], col[1], col[2]
+                r *= (1 - 0.3 * t)
+                g *= (1 - 0.3 * t)
+                b *= (1 - 0.3 * t)
             else:
-                t2 = (t - 0.5) * 2
-                r = 1.0
-                g = 1.0 - t2
-                b = 1.0 - t2
+                if t < 0.5:
+                    t2 = t * 2
+                    r = t2
+                    g = 1.0 - t2
+                    b = 1.0
+                else:
+                    t2 = (t - 0.5) * 2
+                    r = 1.0
+                    g = 1.0 - t2
+                    b = 1.0 - t2
 
             glColor3f(r, g, b)
             glVertex3fv(point)
         glEnd()
 
-        # Alpha shape 
+        # Alpha shape mesh (voxel pontokon)
         if self.mesh_triangles is not None and self.mesh_vertices is not None:
             glEnable(GL_BLEND)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
@@ -202,11 +237,13 @@ class PointCloudViewer:
                         g = 1.0 - t2
                         b = 1.0 - t2
 
-                    glColor4f(r, g, b, 1) 
+                    glColor4f(r, g, b, self.alpha_value) 
                     glVertex3fv(vertex)
             glEnd()
+            
+            # Élek fekete vonalakkal
             glLineWidth(1.0)
-            glColor3f(0.0, 0.0, 0.0)  # black color for edges
+            glColor3f(0.0, 0.0, 0.0)
             for tri in self.mesh_triangles:
                 glBegin(GL_LINE_LOOP)
                 for idx in tri:
@@ -225,25 +262,36 @@ class PointCloudViewer:
         while running:
             delta_time = clock.tick(60) / 1000.0
             self.fps = clock.get_fps()
-            running = self.process_input(delta_time)
+            
+            input_result = self.process_input(delta_time)
+            if input_result == False:
+                break
+            elif input_result == 'reload':
+                break
+                
             self.render()
 
             if time.time() - last_print_time > 0.5:
                 visible_points, _ = self.get_visible_points()
-                print(f"Látható pontok: {len(visible_points)}, FPS: {int(self.fps)}, Pozíció: {self.camera_pos}, Alpha: {self.alpha_value:.2f}")
+                print(f"Látható VOXEL pontok: {len(visible_points)}, FPS: {int(self.fps)}, "
+                      f"Pozíció: {self.camera_pos}, Alpha: {self.alpha_value:.2f}, "
+                      f"Voxel_size: {self.voxel_size}")
                 last_print_time = time.time()
 
         pygame.mouse.set_visible(True)
         pygame.event.set_grab(False)
         pygame.quit()
+
+
 if __name__ == "__main__":
     print("""
     Vezérlés:
-    - W, A, S, D: Mozgás
-    - SPACE, LSHIFT: Fel / Le
-    - Egér: Kamera forgatás
-    - NYILAK FEL/LE: max_distance növelése/csökkentése
+    - W, A, S, D: Mozgás          - NYILAK FEL/LE: max_distance
+    - SPACE/LSHIFT: Fel/Le        - BAL/JOBB NYIL: alpha_value
+    - Egér: Kamera forgatás       - R: ÚJRA TÖLTÉS (másik voxel_size)
     - ESC: Kilépés
+    
+    Voxel_size a hívásnál: PointCloudViewer("file.ply", voxel_size=0.05)
     """)
-    viewer = PointCloudViewer("newship20000.ply")
+    viewer = PointCloudViewer("centered.ply", voxel_size=0.5)
     viewer.run()
