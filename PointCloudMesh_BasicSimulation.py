@@ -7,9 +7,10 @@ from OpenGL.GL import *
 from OpenGL.GLU import *
 
 class PointCloudViewer:
-    def __init__(self, point_cloud_file):
+    def __init__(self, point_cloud_file, scale_factor = 0.05):
         self.pcd = o3d.io.read_point_cloud(point_cloud_file)
         self.vertices = np.asarray(self.pcd.points)
+        self.vertices = self.vertices * scale_factor
         self.colors = np.asarray(self.pcd.colors) if self.pcd.has_colors() else np.ones_like(self.vertices) * 0.7
         self.center = np.mean(self.vertices, axis=0)
         self.bounds_min = np.min(self.vertices, axis=0)
@@ -26,13 +27,13 @@ class PointCloudViewer:
         self.yaw = -90.0
         self.pitch = 0.0
 
-        self.max_distance = 8.0
+        self.max_distance = 20.0
         self.fov_cos = np.cos(np.radians(60))
         self.point_size = 3.0
         self.movement_speed = 1.0
         self.mouse_sensitivity = 0.1
 
-        self.alpha_value = 0.6
+        self.alpha_value = 0.005
         self.last_visible_hash = None
         self.mesh_triangles = None
         self.mesh_vertices = None
@@ -245,5 +246,5 @@ if __name__ == "__main__":
     - NYILAK FEL/LE: max_distance növelése/csökkentése
     - ESC: Kilépés
     """)
-    viewer = PointCloudViewer("newship20000.ply")
+    viewer = PointCloudViewer("/home/buvr_tp4/Desktop/ALLPLYS/FPS/koszos_merged_25000.ply")
     viewer.run()

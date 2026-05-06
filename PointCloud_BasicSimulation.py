@@ -173,5 +173,5 @@ if __name__ == "__main__":
     - NYILAK FEL/LE: max_distance növelése/csökkentése
     - ESC: Kilépés
     """)
-    viewer = PointCloudViewer("newship20000.ply")
+    viewer = PointCloudViewer("tiszta_merged_25000.ply")
     viewer.run()

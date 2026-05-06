@@ -214,5 +214,5 @@ if __name__ == "__main__":
     
     Megjegyzés: voxel_size=0.1 a __init__-ben állítható!
     """)
-    viewer = PointCloudViewer("centered.ply", voxel_size=0.2)  # Itt állítsd a kívánt voxel méretet
+    viewer = PointCloudViewer("sonar_imu_output1.ply", voxel_size=0.2)  # Itt állítsd a kívánt voxel méretet
     viewer.run()

@@ -8,40 +8,76 @@ from OpenGL.GLU import *
 
 
 class PointCloudViewer:
-    def __init__(self, point_cloud_file, voxel_size=0.05):
+    def __init__(self, point_cloud_file, voxel_size=0.2):
         self.pcd = o3d.io.read_point_cloud(point_cloud_file)
         self.voxel_size = voxel_size
         
-        # VOXEL GRID PREPROCESSING - CSAK FOGLALT VOXEL KÖZÉPPONTJAI
+        # VOXEL GRID PREPROCESSING - CSAK FOGLALT VOXEL KÖZÉPPONTJAI + MAX INTENZITÁS
         print("Voxel grid létrehozása...")
         voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(self.pcd, voxel_size=voxel_size)
         voxels = voxel_grid.get_voxels()
         print(f"Foglalt voxelok száma: {len(voxels)}")
 
         self.voxel_centers = []
-        self.voxel_colors = []
+        self.voxel_intensities = []  # ÚJ: max intenzitás voxel-enként (0-255 -> 0-1)
+
+        # Intensity ellenőrzés **HELYES MÓD** Open3D-ben
+        has_intensity = False
+        try:
+            # Próbáld meg elérni - ha nincs, KeyError dob
+            test_intensities = np.asarray(self.pcd.point["intensity"])
+            has_intensity = True
+            print(f"✅ Intenzitás megtalálva: min={test_intensities.min():.0f}, max={test_intensities.max():.0f} (uchar 0-255)")
+        except KeyError:
+            print("❌ Nincs 'intensity' attribútum, fallback szürke + távolság színezésre")
+        except Exception as e:
+            print(f"❌ Intensity ellenőrzés hiba: {e}, fallback")
+
         for vox in voxels:
             center = voxel_grid.get_voxel_center_coordinate(vox.grid_index)
             self.voxel_centers.append(center)
-        
+            
+            intensity = 0.0  # Default fallback
+            
+            if has_intensity:
+                try:
+                    # Voxel bounding box
+                    gi = vox.grid_index
+                    min_bound = np.array([gi[0]*voxel_size, gi[1]*voxel_size, gi[2]*voxel_size])
+                    max_bound = min_bound + voxel_size
+                    bbox = o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound)
+                    voxel_points = self.pcd.crop(bbox)
+                    if len(voxel_points.points) > 0:
+                        voxel_intensities = np.asarray(voxel_points.point["intensity"])
+                        intensity = voxel_intensities.max() / 255.0  # Normalizálás 0-1
+                except:
+                    intensity = 0.0  # Bármi hiba -> fallback
+            
+            self.voxel_intensities.append(intensity)
+
         self.vertices = np.asarray(self.voxel_centers)
-        
-        # Színek: ha van szín a PLY-ben, akkor voxel downsample-ból
-        if self.pcd.has_colors():
-            down_pcd = self.pcd.voxel_down_sample(voxel_size=voxel_size)
-            self.colors = np.asarray(down_pcd.colors)
+        self.intensities = np.array(self.voxel_intensities)
+
+        # Globális normalizálás
+        int_min, int_max = self.intensities.min(), self.intensities.max()
+        if int_max > int_min:
+            self.intensities = (self.intensities - int_min) / (int_max - int_min)
         else:
-            self.colors = np.ones_like(self.vertices) * 0.7
-        
+            self.intensities = np.full(len(self.vertices), 0.5)
+
+        self.colors = self.intensity_to_color(self.intensities)
+
         self.center = np.mean(self.vertices, axis=0)
         self.bounds_min = np.min(self.vertices, axis=0)
         self.bounds_max = np.max(self.vertices, axis=0)
 
         print(f"Voxelizált pontfelhő: {len(self.vertices)} pont")
+        print(f"Intenzitás tartomány: {self.intensities.min():.3f} - {self.intensities.max():.3f}")
         print(f"Középpont: {self.center}")
         print(f"Kiterjedés: min={self.bounds_min}, max={self.bounds_max}")
 
-        # Kamera
+
+        # Kamera (változatlan)
         self.camera_pos = self.center + np.array([0.0, 0.0, 5.0], dtype=np.float32)
         self.camera_front = (self.center - self.camera_pos)
         self.camera_front /= np.linalg.norm(self.camera_front)
@@ -51,7 +87,7 @@ class PointCloudViewer:
 
         self.max_distance = 20.0
         self.fov_cos = np.cos(np.radians(60))
-        self.point_size = 4.0  # Nagyobb voxel pontokhoz
+        self.point_size = 4.0
         self.movement_speed = 1.0
         self.mouse_sensitivity = 0.1
 
@@ -74,6 +110,22 @@ class PointCloudViewer:
 
         pygame.mouse.get_rel()
 
+    def intensity_to_color(self, intensities):
+        """Intenzitás -> szín: nagy= sötétkék (0,0,1), kicsi= sárga (1,1,0)"""
+        # Invert: magas intenzitás -> kék, alacsony -> sárga
+        t = 1.0 - intensities  # 0 (magas int) -> sárga, 1 (alacsony int) -> kék? VÁRJ, fordítva!
+        t = intensities  # magas int -> magas t -> kék
+        
+        r = 1.0 - t  # magas t -> alacsony r (kék)
+        g = 1.0 - t * 0.5  # enyhe zöld csillapítás
+        b = t  # magas t -> magas kék
+        
+        colors = np.zeros((len(intensities), 3))
+        colors[:, 0] = r
+        colors[:, 1] = g
+        colors[:, 2] = b
+        return colors
+
     def update_camera_vectors(self):
         front = np.array([
             np.cos(np.radians(self.yaw)) * np.cos(np.radians(self.pitch)),
@@ -93,7 +145,7 @@ class PointCloudViewer:
                 if event.key == pygame.K_ESCAPE:
                     return False
                 elif event.key == pygame.K_r:
-                    return 'reload'  # Újratöltés különböző voxel_size-szal
+                    return 'reload'
 
         keys = pygame.key.get_pressed()
         if keys[pygame.K_w]:
@@ -142,7 +194,7 @@ class PointCloudViewer:
         dot = np.dot(directions_normalized, self.camera_front)
         mask = (distances < self.max_distance) & (dot > self.fov_cos)
 
-        return self.vertices[mask], self.colors[mask]
+        return self.vertices[mask], self.colors[mask]  # Most colors intenzitás alapú!
 
     def generate_alpha_mesh(self, points, alpha=None):
         alpha = alpha if alpha is not None else self.alpha_value
@@ -151,9 +203,10 @@ class PointCloudViewer:
             self.mesh_vertices = None
             return
 
+        # Mesh-hez színek: eredeti voxel színek (intenzitás alapú)
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(points)
-        pcd.colors = o3d.utility.Vector3dVector(self.colors[:len(points)])  # Voxel színek hozzáadása
+        pcd.colors = o3d.utility.Vector3dVector(self.colors[:len(points)])
         try:
             mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
             mesh.remove_duplicated_vertices()
@@ -177,79 +230,54 @@ class PointCloudViewer:
         cam_target = self.camera_pos + self.camera_front
         gluLookAt(*self.camera_pos, *cam_target, *self.camera_up)
 
-        visible_points, visible_colors = self.get_visible_points()
+        visible_points, visible_colors = self.get_visible_points()  # Intenzitás színek!
 
         current_hash = hash(visible_points.tobytes())
         if current_hash != self.last_visible_hash:
             self.generate_alpha_mesh(visible_points)
             self.last_visible_hash = current_hash
 
-        # VOXEL PONTok kirajzolása (voxel színekkel)
+        # VOXEL PONTok kirajzolása (INTENZITÁS ALAPÚ FIX SZÍNEKKEL)
         glBegin(GL_POINTS)
         for i, point in enumerate(visible_points):
-            distance = np.linalg.norm(point - self.camera_pos)
-            t = min(distance / self.max_distance, 1.0)
-
-            # Voxel szín használata távolság helyett
+            # FIX szín intenzitás alapján - nincs távolság moduláció!
             if len(visible_colors) > i:
                 col = visible_colors[i]
-                # Távolság moduláció
-                r, g, b = col[0], col[1], col[2]
-                r *= (1 - 0.3 * t)
-                g *= (1 - 0.3 * t)
-                b *= (1 - 0.3 * t)
+                glColor3f(col[0], col[1], col[2])
             else:
-                if t < 0.5:
-                    t2 = t * 2
-                    r = t2
-                    g = 1.0 - t2
-                    b = 1.0
-                else:
-                    t2 = (t - 0.5) * 2
-                    r = 1.0
-                    g = 1.0 - t2
-                    b = 1.0 - t2
-
-            glColor3f(r, g, b)
+                glColor3f(0.7, 0.7, 0.7)
             glVertex3fv(point)
         glEnd()
 
-        # Alpha shape mesh (voxel pontokon)
+        # Alpha shape mesh (intenzitás színekkel)
         if self.mesh_triangles is not None and self.mesh_vertices is not None:
             glEnable(GL_BLEND)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-            glColor4f(0.2, 0.6, 1.0, 0.3)
 
             glBegin(GL_TRIANGLES)
             for tri in self.mesh_triangles:
                 for idx in tri:
                     vertex = self.mesh_vertices[idx]
+                    # Mesh-hez is távolság moduláció + intenzitás szín (de mivel nincs pontos szín, közelítő)
                     distance = np.linalg.norm(vertex - self.camera_pos)
                     t = min(distance / self.max_distance, 1.0)
-                    if t < 0.5:
-                        t2 = t * 2
-                        r = t2
-                        g = 1.0 - t2
-                        b = 1.0
-                    else:
-                        t2 = (t - 0.5) * 2
-                        r = 1.0
-                        g = 1.0 - t2
-                        b = 1.0 - t2
-
-                    glColor4f(r, g, b, self.alpha_value) 
+                    base_col = np.array([0.2, 0.6, 1.0])  # Alap kékes
+                    col = base_col * (1 - 0.3 * t)
+                    glColor4f(col[0], col[1], col[2], self.alpha_value)
                     glVertex3fv(vertex)
             glEnd()
             
             # Élek fekete vonalakkal
+            glDisable(GL_BLEND)
             glLineWidth(1.0)
             glColor3f(0.0, 0.0, 0.0)
+            glEnableClientState(GL_VERTEX_ARRAY)
             for tri in self.mesh_triangles:
                 glBegin(GL_LINE_LOOP)
                 for idx in tri:
                     glVertex3fv(self.mesh_vertices[idx])
                 glEnd()
-            glDisable(GL_BLEND)
+            glDisableClientState(GL_VERTEX_ARRAY)
 
         pygame.display.flip()
 
@@ -293,5 +321,5 @@ if __name__ == "__main__":
     
     Voxel_size a hívásnál: PointCloudViewer("file.ply", voxel_size=0.05)
     """)
-    viewer = PointCloudViewer("centered.ply", voxel_size=0.5)
+    viewer = PointCloudViewer("newship.ply", voxel_size=0.2)
     viewer.run()
