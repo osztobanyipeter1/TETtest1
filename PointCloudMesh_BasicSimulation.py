@@ -1,17 +1,23 @@
-import open3d as o3d
 import time
 import numpy as np
+import open3d as o3d
 import pygame
-from pygame.locals import *
 from OpenGL.GL import *
 from OpenGL.GLU import *
+from pygame.locals import *
+
 
 class PointCloudViewer:
-    def __init__(self, point_cloud_file, scale_factor = 0.05):
+
+    def __init__(self, point_cloud_file, scale_factor=0.5):
         self.pcd = o3d.io.read_point_cloud(point_cloud_file)
         self.vertices = np.asarray(self.pcd.points)
         self.vertices = self.vertices * scale_factor
-        self.colors = np.asarray(self.pcd.colors) if self.pcd.has_colors() else np.ones_like(self.vertices) * 0.7
+        self.colors = (
+            np.asarray(self.pcd.colors)
+            if self.pcd.has_colors()
+            else np.ones_like(self.vertices) * 0.7
+        )
         self.center = np.mean(self.vertices, axis=0)
         self.bounds_min = np.min(self.vertices, axis=0)
         self.bounds_max = np.max(self.vertices, axis=0)
@@ -19,9 +25,10 @@ class PointCloudViewer:
         print(f"Pontfelhő középpontja: {self.center}")
         print(f"Kiterjedése: min={self.bounds_min}, max={self.bounds_max}")
 
-        # Kamera
-        self.camera_pos = self.center + np.array([0.0, 0.0, 5.0], dtype=np.float32)
-        self.camera_front = (self.center - self.camera_pos)
+        self.camera_pos = self.center + np.array(
+            [0.0, 0.0, 5.0], dtype=np.float32
+        )
+        self.camera_front = self.center - self.camera_pos
         self.camera_front /= np.linalg.norm(self.camera_front)
         self.camera_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
         self.yaw = -90.0
@@ -33,13 +40,14 @@ class PointCloudViewer:
         self.movement_speed = 1.0
         self.mouse_sensitivity = 0.1
 
-        self.alpha_value = 0.005
+        self.alpha_value = 0.1
         self.last_visible_hash = None
         self.mesh_triangles = None
         self.mesh_vertices = None
+        self.mesh_colors = None
 
         pygame.init()
-        self.display = (1500, 720)
+        self.display = (1920, 1080)
         pygame.display.set_mode(self.display, DOUBLEBUF | OPENGL)
         pygame.mouse.set_visible(False)
         pygame.event.set_grab(True)
@@ -50,14 +58,17 @@ class PointCloudViewer:
         glEnable(GL_DEPTH_TEST)
         glPointSize(self.point_size)
 
-        pygame.mouse.get_rel() # reset mouse position
+        pygame.mouse.get_rel()
 
     def update_camera_vectors(self):
-        front = np.array([
-            np.cos(np.radians(self.yaw)) * np.cos(np.radians(self.pitch)),
-            np.sin(np.radians(self.pitch)),
-            np.sin(np.radians(self.yaw)) * np.cos(np.radians(self.pitch))
-        ], dtype=np.float32)
+        front = np.array(
+            [
+                np.cos(np.radians(self.yaw)) * np.cos(np.radians(self.pitch)),
+                np.sin(np.radians(self.pitch)),
+                np.sin(np.radians(self.yaw)) * np.cos(np.radians(self.pitch)),
+            ],
+            dtype=np.float32,
+        )
         self.camera_front = front / np.linalg.norm(front)
 
     def process_input(self, delta_time):
@@ -99,7 +110,9 @@ class PointCloudViewer:
 
         if np.linalg.norm(move_direction) > 0:
             move_direction /= np.linalg.norm(move_direction)
-            self.camera_pos += move_direction * self.movement_speed * delta_time
+            self.camera_pos += (
+                move_direction * self.movement_speed * delta_time
+            )
 
         dx, dy = pygame.mouse.get_rel()
         if dx != 0 or dy != 0:
@@ -120,17 +133,21 @@ class PointCloudViewer:
 
         return self.vertices[mask], self.colors[mask]
 
-    def generate_alpha_mesh(self, points, alpha=None):
+    def generate_alpha_mesh(self, points, colors, alpha=None):
         alpha = alpha if alpha is not None else self.alpha_value
         if len(points) < 10:
             self.mesh_triangles = None
             self.mesh_vertices = None
+            self.mesh_colors = None
             return
 
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(points)
+        pcd.colors = o3d.utility.Vector3dVector(colors)
         try:
-            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
+            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(
+                pcd, alpha
+            )
             mesh.remove_duplicated_vertices()
             mesh.remove_degenerate_triangles()
             mesh.remove_duplicated_triangles()
@@ -138,10 +155,22 @@ class PointCloudViewer:
 
             self.mesh_vertices = np.asarray(mesh.vertices)
             self.mesh_triangles = np.asarray(mesh.triangles)
+
+            if len(self.mesh_vertices) > 0:
+                pcd_tree = o3d.geometry.KDTreeFlann(pcd)
+                mesh_colors = []
+                for vertex in self.mesh_vertices:
+                    _, idx, _ = pcd_tree.search_knn_vector_3d(vertex, 1)
+                    mesh_colors.append(colors[idx[0]])
+                self.mesh_colors = np.array(mesh_colors)
+            else:
+                self.mesh_colors = None
+
         except Exception as e:
             print("Hiba az alpha shape generálásakor:", e)
             self.mesh_vertices = None
             self.mesh_triangles = None
+            self.mesh_colors = None
 
     def render(self):
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -152,62 +181,40 @@ class PointCloudViewer:
         cam_target = self.camera_pos + self.camera_front
         gluLookAt(*self.camera_pos, *cam_target, *self.camera_up)
 
-        visible_points, _ = self.get_visible_points()
+        visible_points, visible_colors = self.get_visible_points()
 
         current_hash = hash(visible_points.tobytes())
         if current_hash != self.last_visible_hash:
-            self.generate_alpha_mesh(visible_points)
+            self.generate_alpha_mesh(visible_points, visible_colors)
             self.last_visible_hash = current_hash
 
-        # Pontok kirajzolása
         glBegin(GL_POINTS)
-        for point in visible_points:
-            distance = np.linalg.norm(point - self.camera_pos)
-            t = min(distance / self.max_distance, 1.0)
-
-            if t < 0.5:
-                t2 = t * 2
-                r = t2
-                g = 1.0 - t2
-                b = 1.0
-            else:
-                t2 = (t - 0.5) * 2
-                r = 1.0
-                g = 1.0 - t2
-                b = 1.0 - t2
-
-            glColor3f(r, g, b)
+        for point, color in zip(visible_points, visible_colors):
+            glColor3fv(color)
             glVertex3fv(point)
         glEnd()
 
-        # Alpha shape 
-        if self.mesh_triangles is not None and self.mesh_vertices is not None:
+        if (
+            self.mesh_triangles is not None
+            and self.mesh_vertices is not None
+            and self.mesh_colors is not None
+        ):
             glEnable(GL_BLEND)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-            glColor4f(0.2, 0.6, 1.0, 0.3)
 
             glBegin(GL_TRIANGLES)
             for tri in self.mesh_triangles:
                 for idx in tri:
-                    vertex = self.mesh_vertices[idx]
-                    distance = np.linalg.norm(vertex - self.camera_pos)
-                    t = min(distance / self.max_distance, 1.0)
-                    if t < 0.5:
-                        t2 = t * 2
-                        r = t2
-                        g = 1.0 - t2
-                        b = 1.0
-                    else:
-                        t2 = (t - 0.5) * 2
-                        r = 1.0
-                        g = 1.0 - t2
-                        b = 1.0 - t2
-
-                    glColor4f(r, g, b, 1) 
-                    glVertex3fv(vertex)
+                    glColor3f(
+                        self.mesh_colors[idx][0],
+                        self.mesh_colors[idx][1],
+                        self.mesh_colors[idx][2],
+                    )
+                    glVertex3fv(self.mesh_vertices[idx])
             glEnd()
+
             glLineWidth(1.0)
-            glColor3f(0.0, 0.0, 0.0)  # black color for edges
+            glColor3f(0.0, 0.0, 0.0)
             for tri in self.mesh_triangles:
                 glBegin(GL_LINE_LOOP)
                 for idx in tri:
@@ -231,12 +238,16 @@ class PointCloudViewer:
 
             if time.time() - last_print_time > 0.5:
                 visible_points, _ = self.get_visible_points()
-                print(f"Látható pontok: {len(visible_points)}, FPS: {int(self.fps)}, Pozíció: {self.camera_pos}, Alpha: {self.alpha_value:.2f}")
+                print(
+                    f"Látható pontok: {len(visible_points)}, FPS: {int(self.fps)}, Pozíció: {self.camera_pos}, Alpha: {self.alpha_value:.2f}"
+                )
                 last_print_time = time.time()
 
         pygame.mouse.set_visible(True)
         pygame.event.set_grab(False)
         pygame.quit()
+
+
 if __name__ == "__main__":
     print("""
     Vezérlés:
@@ -246,5 +257,5 @@ if __name__ == "__main__":
     - NYILAK FEL/LE: max_distance növelése/csökkentése
     - ESC: Kilépés
     """)
-    viewer = PointCloudViewer("/home/buvr_tp4/Desktop/ALLPLYS/FPS/koszos_merged_25000.ply")
+    viewer = PointCloudViewer("2ndkimenet.ply")
     viewer.run()

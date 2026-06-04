@@ -1,17 +1,22 @@
-import open3d as o3d
 import time
 import numpy as np
+import open3d as o3d
 import pygame
-from pygame.locals import *
 from OpenGL.GL import *
 from OpenGL.GLU import *
+from pygame.locals import *
+
 
 class PointCloudViewer:
-    def __init__(self, point_cloud_file):
 
+    def __init__(self, point_cloud_file):
         self.pcd = o3d.io.read_point_cloud(point_cloud_file)
         self.vertices = np.asarray(self.pcd.points)
-        self.colors = np.asarray(self.pcd.colors) if self.pcd.has_colors() else np.ones_like(self.vertices) * 0.7
+        self.colors = (
+            np.asarray(self.pcd.colors)
+            if self.pcd.has_colors()
+            else np.ones_like(self.vertices) * 0.7
+        )
 
         self.center = np.mean(self.vertices, axis=0)
         self.bounds_min = np.min(self.vertices, axis=0)
@@ -20,21 +25,23 @@ class PointCloudViewer:
         print(f"Pontfelhő középpontja: {self.center}")
         print(f"Kiterjedése: min={self.bounds_min}, max={self.bounds_max}")
 
-        self.camera_pos = self.center + np.array([0.0, 0.0, 5.0], dtype=np.float32)
-        self.camera_front = (self.center - self.camera_pos)
+        self.camera_pos = self.center + np.array(
+            [0.0, 0.0, 5.0], dtype=np.float32
+        )
+        self.camera_front = self.center - self.camera_pos
         self.camera_front /= np.linalg.norm(self.camera_front)
         self.camera_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
         self.yaw = -90.0
         self.pitch = 0.0
 
-        self.max_distance = 20.0
+        self.max_distance = 50.0
         self.fov_cos = np.cos(np.radians(45))
         self.point_size = 3.0
         self.movement_speed = 1.0
         self.mouse_sensitivity = 0.1
 
         pygame.init()
-        self.display = (1280, 900)
+        self.display = (1920, 1080)
         pygame.display.set_mode(self.display, DOUBLEBUF | OPENGL)
         pygame.mouse.set_visible(False)
         pygame.event.set_grab(True)
@@ -48,11 +55,14 @@ class PointCloudViewer:
         pygame.mouse.get_rel()
 
     def update_camera_vectors(self):
-        front = np.array([
-            np.cos(np.radians(self.yaw)) * np.cos(np.radians(self.pitch)),
-            np.sin(np.radians(self.pitch)),
-            np.sin(np.radians(self.yaw)) * np.cos(np.radians(self.pitch))
-        ], dtype=np.float32)
+        front = np.array(
+            [
+                np.cos(np.radians(self.yaw)) * np.cos(np.radians(self.pitch)),
+                np.sin(np.radians(self.pitch)),
+                np.sin(np.radians(self.yaw)) * np.cos(np.radians(self.pitch)),
+            ],
+            dtype=np.float32,
+        )
         self.camera_front = front / np.linalg.norm(front)
 
     def process_input(self, delta_time):
@@ -89,7 +99,9 @@ class PointCloudViewer:
 
         if np.linalg.norm(move_direction) > 0:
             move_direction /= np.linalg.norm(move_direction)
-            self.camera_pos += move_direction * self.movement_speed * delta_time
+            self.camera_pos += (
+                move_direction * self.movement_speed * delta_time
+            )
 
         dx, dy = pygame.mouse.get_rel()
         if dx != 0 or dy != 0:
@@ -119,29 +131,15 @@ class PointCloudViewer:
         cam_target = self.camera_pos + self.camera_front
         gluLookAt(*self.camera_pos, *cam_target, *self.camera_up)
 
-        visible_points, _ = self.get_visible_points()
+        visible_points, visible_colors = self.get_visible_points()
 
         glBegin(GL_POINTS)
-        for point in visible_points:
-            distance = np.linalg.norm(point - self.camera_pos)
-            t = min(distance / self.max_distance, 1.0)
-
-            if t < 0.5:
-                r = 1.0 - 2 * t
-                g = 2 * t
-                b = 0.0
-            else:
-                t2 = (t - 0.5) * 2
-                r = 0.0
-                g = 1.0 - t2
-                b = t2
-
-            glColor3f(r, g, b)
+        for point, color in zip(visible_points, visible_colors):
+            glColor3fv(color)
             glVertex3fv(point)
         glEnd()
 
         pygame.display.flip()
-
 
     def run(self):
         clock = pygame.time.Clock()
@@ -157,12 +155,15 @@ class PointCloudViewer:
 
             if time.time() - last_print_time > 0.5:
                 visible_points, _ = self.get_visible_points()
-                print(f"Látható pontok: {len(visible_points)}, FPS: {int(self.fps)}, Pozíció: {self.camera_pos}")
+                print(
+                    f"Látható pontok: {len(visible_points)}, FPS: {int(self.fps)}, Pozíció: {self.camera_pos}"
+                )
                 last_print_time = time.time()
 
         pygame.mouse.set_visible(True)
         pygame.event.set_grab(False)
         pygame.quit()
+
 
 if __name__ == "__main__":
     print("""
@@ -173,5 +174,5 @@ if __name__ == "__main__":
     - NYILAK FEL/LE: max_distance növelése/csökkentése
     - ESC: Kilépés
     """)
-    viewer = PointCloudViewer("tiszta_merged_25000.ply")
+    viewer = PointCloudViewer("2ndkimenet.ply")
     viewer.run()
