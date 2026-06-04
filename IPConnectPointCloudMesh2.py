@@ -317,5 +317,5 @@ class PointCloudViewer:
         pygame.quit()
 
 if __name__ == "__main__":
-    viewer = PointCloudViewer("cave_sampled.ply", host='127.0.0.1')
+    viewer = PointCloudViewer("newship20000.ply", host='127.0.0.1')
     viewer.run()

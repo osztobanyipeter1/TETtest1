@@ -1027,5 +1027,5 @@ class PointCloudViewer:
 
 
 if __name__ == "__main__":
-    viewer = PointCloudViewer("pcexample.ply", host='127.0.0.1', scale_factor=0.1)
+    viewer = PointCloudViewer("centered.ply", host='127.0.0.1', scale_factor=0.1)
     viewer.run()

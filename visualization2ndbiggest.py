@@ -144,7 +144,7 @@ def print_cluster_stats(labels):
 
 def main():
     #input_file = "/home/buvr_tp4/Desktop/ALLPLYS/koszos_merged.ply"
-    input_file = "koszos_merged_500000.ply"
+    input_file = "megkoszosabb_merged_25000.ply"
 
     USE_OUTLIER_REMOVAL = True
     NB_NEIGHBORS = 20
